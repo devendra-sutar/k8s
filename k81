@@ -1,0 +1,99 @@
+#!/bin/bash
+
+set -e  # Exit immediately if a command exits with a non-zero status
+
+# Function to log messages
+log() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
+}
+
+# Check if kubectl and Helm are installed
+check_prerequisites() {
+    log "Checking prerequisites..."
+    if ! command -v kubectl &>/dev/null; then
+        log "kubectl not found. Installing..."
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+    fi
+    if ! command -v helm &>/dev/null; then
+        log "Helm not found. Installing..."
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    fi
+    log "Prerequisites checked."
+}
+
+# Create namespace for monitoring stack
+setup_namespace() {
+    local namespace="alloy"
+    log "Creating namespace: $namespace..."
+    kubectl create namespace "$namespace" || log "Namespace $namespace already exists."
+}
+
+# Add and update Grafana Helm repository
+setup_helm_repo() {
+    log "Adding Grafana Helm repository..."
+    helm repo add grafana https://grafana.github.io/helm-charts
+    helm repo update
+}
+
+# Fetch and configure values.yaml
+configure_values_file() {
+    local values_file="values.yaml"
+    log "Fetching default values.yaml for Grafana k8s-monitoring..."
+    helm show values grafana/k8s-monitoring > "$values_file"
+
+    log "Updating custom endpoints in values.yaml..."
+    sed -i "s|host:.*|host: \"http://172.16.1.86:9090\"|" "$values_file"      # Prometheus
+    sed -i "s|host:.*|host: \"http://172.16.1.193:3100\"|" "$values_file"    # Loki
+    sed -i "s|host:.*|host: \"http://172.16.1.85:4317/v1/traces\"|" "$values_file" # Tempo
+    sed -i "/protocol:/,/^ *[^ ]/s|protocol:.*|protocol: \"remote_write\"|" "$values_file"
+
+    log "Enabling metrics, logs, and pod logs collection in values.yaml..."
+    sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/pod_logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+
+    log "Enabling additional components: Cost, Kepler, etc..."
+    sed -i "/Cost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/Kepler:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/cluster_events:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/Opencost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/kube-state-metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/prometheus-node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/prometheus-operator-crds:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+
+    log "values.yaml updated successfully."
+}
+
+# Deploy the monitoring stack using Helm
+deploy_monitoring_stack() {
+    local namespace="alloy"
+    local values_file="values.yaml"
+
+    log "Deploying Grafana k8s-monitoring stack to namespace $namespace..."
+    helm install -n "$namespace" grafana-k8s-monitoring grafana/k8s-monitoring -f "$values_file"
+}
+
+# Verify deployment
+verify_deployment() {
+    local namespace="alloy"
+    log "Verifying deployment in namespace $namespace..."
+    kubectl get pods -n "$namespace"
+    log "Note: The OpenCost pod may not run initially as it requires additional configuration. Please configure OpenCost separately for cost management."
+}
+
+# Main function
+main() {
+    check_prerequisites
+    setup_namespace
+    setup_helm_repo
+    configure_values_file
+    deploy_monitoring_stack
+    verify_deployment
+    log "Grafana monitoring stack setup completed successfully."
+}
+
+# Run the script
+main
