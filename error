@@ -7,7 +7,7 @@ log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
 }
 
-# Check if kubectl and Helm are installed
+# Check if required tools are installed
 check_prerequisites() {
     log "Checking prerequisites..."
     if ! command -v kubectl &>/dev/null; then
@@ -19,6 +19,11 @@ check_prerequisites() {
     if ! command -v helm &>/dev/null; then
         log "Helm not found. Installing..."
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    fi
+    if ! command -v yq &>/dev/null; then
+        log "yq not found. Installing..."
+        sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
+        sudo chmod +x /usr/local/bin/yq
     fi
     log "Prerequisites checked."
 }
@@ -44,25 +49,25 @@ configure_values_file() {
     helm show values grafana/k8s-monitoring > "$values_file"
 
     log "Updating custom endpoints in values.yaml..."
-    sed -i "s|host:.*|host: \"http://10.0.34.144:9090\"|" "$values_file"      # Prometheus
-    sed -i "s|host:.*|host: \"http://10.0.34.147:3100\"|" "$values_file"    # Loki
-    sed -i "s|host:.*|host: \"http://10.0.34.195:3200/v1/traces\"|" "$values_file" # Tempo
-    sed -i "/protocol:/,/^ *[^ ]/s|protocol:.*|protocol: \"remote_write\"|" "$values_file"
+    yq eval '.prometheus.host = "http://10.0.34.144:9090"' -i "$values_file"
+    yq eval '.loki.host = "http://10.0.34.147:3100"' -i "$values_file"
+    yq eval '.tempo.host = "http://10.0.34.195:3200/v1/traces"' -i "$values_file"
+    yq eval '.tempo.protocol = "remote_write"' -i "$values_file"
 
     log "Enabling metrics, logs, and pod logs collection in values.yaml..."
-    sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/pod_logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    yq eval '.metrics.enabled = true' -i "$values_file"
+    yq eval '.logs.enabled = true' -i "$values_file"
+    yq eval '.pod_logs.enabled = true' -i "$values_file"
 
     log "Enabling additional components: Cost, Kepler, etc..."
-    sed -i "/Cost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/Kepler:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/cluster_events:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/Opencost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/kube-state-metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/prometheus-node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/prometheus-operator-crds:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    yq eval '.Cost.enabled = true' -i "$values_file"
+    yq eval '.Kepler.enabled = true' -i "$values_file"
+    yq eval '.node-exporter.enabled = true' -i "$values_file"
+    yq eval '.cluster_events.enabled = true' -i "$values_file"
+    yq eval '.Opencost.enabled = true' -i "$values_file"
+    yq eval '.kube-state-metrics.enabled = true' -i "$values_file"
+    yq eval '.prometheus-node-exporter.enabled = true' -i "$values_file"
+    yq eval '.prometheus-operator-crds.enabled = true' -i "$values_file"
 
     log "values.yaml updated successfully."
 }
