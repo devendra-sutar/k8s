@@ -51,6 +51,8 @@ configure_values_file() {
     # Modify values.yaml for custom endpoints and settings
    echo "Updating values.yaml with custom endpoints and configurations..."
 
+echo "Updating values.yaml with custom endpoints and configurations..."
+
 # Update Prometheus host
 sed -i 's|^\s*prometheus.host:\s*.*|prometheus.host: "http://10.0.34.144:9090"|' values.yaml  # Prometheus
 
@@ -61,22 +63,21 @@ sed -i 's|^\s*loki.host:\s*.*|loki.host: "http://10.0.34.147:3100"|' values.yaml
 sed -i 's|^\s*tempo.host:\s*.*|tempo.host: "http://10.0.34.193:3200"|' values.yaml  # Tempo
 
 # Update protocol to "remote_write"
-sed -i '/protocol:/,/^ *[^ ]/s|protocol:.*|protocol: "remote_write"|' values.yaml  # Protocol
+sed -i '/^\s*protocol:/s|^\s*protocol:.*|protocol: "remote_write"|' values.yaml  # Protocol
 
+# Enable required components
+sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Metrics
+sed -i "/logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Logs
+sed -i "/pod_logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Pod Logs
+sed -i "/Cost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Cost
+sed -i "/Kepler:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Kepler
+sed -i "/node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Node Exporter
+sed -i "/cluster_events:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Cluster Events
+sed -i "/Opencost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # OpenCost
+sed -i "/kube-state-metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Kube State Metrics
+sed -i "/prometheus-node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Prometheus Node Exporter
+sed -i "/prometheus-operator-crds:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Prometheus Operator CRDs
 
-
-    # Enable required components
-    sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
-    sed -i "/logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
-    sed -i "/pod_logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
-    sed -i "/Cost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
-    sed -i "/Kepler:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
-    sed -i "/node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
-    sed -i "/cluster_events:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
-    sed -i "/Opencost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
-    sed -i "/kube-state-metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
-    sed -i "/prometheus-node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
-    sed -i "/prometheus-operator-crds:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
 
     log "values.yaml updated successfully."
 }
