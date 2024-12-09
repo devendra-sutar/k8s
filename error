@@ -62,33 +62,37 @@ add_helm_repo() {
 configure_values_file() {
     helm show values grafana/k8s-monitoring > values.yaml
 
-    # Modify values.yaml for custom endpoints and settings
     log "Updating values.yaml with custom endpoints and configurations..."
 
     # Update Prometheus host
-    sed -i 's|^\s*prometheus.host:\s*.*|prometheus.host: "http://10.0.34.144:9090"|' values.yaml  # Prometheus
+    log "Updating Prometheus host..."
+    yq e '.prometheus.host = "http://10.0.34.144:9090"' -i values.yaml
 
     # Update Loki host
-    sed -i 's|^\s*loki.host:\s*.*|loki.host: "http://10.0.34.147:3100"|' values.yaml  # Loki
+    log "Updating Loki host..."
+    yq e '.loki.host = "http://10.0.34.147:3100"' -i values.yaml
 
     # Update Tempo host
-    sed -i 's|^\s*tempo.host:\s*.*|tempo.host: "http://10.0.34.193:3200"|' values.yaml  # Tempo
+    log "Updating Tempo host..."
+    yq e '.tempo.host = "http://10.0.34.193:3200"' -i values.yaml
 
     # Update protocol to "remote_write"
-    sed -i '/^\s*protocol:/s|^\s*protocol:.*|protocol: "remote_write"|' values.yaml  # Protocol
+    log "Updating protocol..."
+    yq e '.protocol = "remote_write"' -i values.yaml
 
     # Enable required components
-    sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Metrics
-    sed -i "/logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Logs
-    sed -i "/pod_logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Pod Logs
-    sed -i "/Cost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Cost
-    sed -i "/Kepler:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Kepler
-    sed -i "/node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Node Exporter
-    sed -i "/cluster_events:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Cluster Events
-    sed -i "/Opencost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # OpenCost
-    sed -i "/kube-state-metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Kube State Metrics
-    sed -i "/prometheus-node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Prometheus Node Exporter
-    sed -i "/prometheus-operator-crds:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Prometheus Operator CRDs
+    log "Enabling required components..."
+    yq e '.metrics.enabled = true' -i values.yaml
+    yq e '.logs.enabled = true' -i values.yaml
+    yq e '.pod_logs.enabled = true' -i values.yaml
+    yq e '.Cost.enabled = true' -i values.yaml
+    yq e '.Kepler.enabled = true' -i values.yaml
+    yq e '.node-exporter.enabled = true' -i values.yaml
+    yq e '.cluster_events.enabled = true' -i values.yaml
+    yq e '.Opencost.enabled = true' -i values.yaml
+    yq e '.kube-state-metrics.enabled = true' -i values.yaml
+    yq e '.prometheus-node-exporter.enabled = true' -i values.yaml
+    yq e '.prometheus-operator-crds.enabled = true' -i values.yaml
 
     log "values.yaml updated successfully."
 }
