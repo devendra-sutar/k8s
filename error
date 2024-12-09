@@ -49,11 +49,21 @@ configure_values_file() {
     helm show values grafana/k8s-monitoring > values.yaml
 
     # Modify values.yaml for custom endpoints and settings
-    log "Updating values.yaml with custom endpoints and configurations..."
-    sed -i "s|host:.*|host: \"http://10.0.34.144:9090\"|" values.yaml  # Prometheus
-    sed -i "s|host:.*|host: \"http://10.0.34.147:3100\"|" values.yaml  # Loki
-    sed -i "s|host:.*|host: \"http://10.0.34.193:3200\"|" values.yaml  # Tempo
-    sed -i "/protocol:/,/^ *[^ ]/s|protocol:.*|protocol: \"remote_write\"|" values.yaml
+   echo "Updating values.yaml with custom endpoints and configurations..."
+
+# Update Prometheus host
+sed -i 's|^\s*prometheus.host:\s*.*|prometheus.host: "http://10.0.34.144:9090"|' values.yaml  # Prometheus
+
+# Update Loki host
+sed -i 's|^\s*loki.host:\s*.*|loki.host: "http://10.0.34.147:3100"|' values.yaml  # Loki
+
+# Update Tempo host
+sed -i 's|^\s*tempo.host:\s*.*|tempo.host: "http://10.0.34.193:3200"|' values.yaml  # Tempo
+
+# Update protocol to "remote_write"
+sed -i '/protocol:/,/^ *[^ ]/s|protocol:.*|protocol: "remote_write"|' values.yaml  # Protocol
+
+
 
     # Enable required components
     sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
