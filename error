@@ -7,17 +7,59 @@ log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
 }
 
-# Automatically set KUBECONFIG
+# Install kubectl
+install_kubectl() {
+    if ! command -v kubectl &>/dev/null; then
+        log "kubectl not found. Installing..."
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+        log "kubectl installed successfully."
+    else
+        log "kubectl is already installed."
+    fi
+
+    # Verify kubectl installation
+    kubectl version --client || { log "Failed to verify kubectl installation."; exit 1; }
+}
+
+# Install Helm
+install_helm() {
+    if ! command -v helm &>/dev/null; then
+        log "Helm not found. Installing..."
+        
+        # Install prerequisites for Helm
+        log "Installing prerequisites for Helm..."
+        sudo apt-get update -y
+        sudo apt-get install -y apt-transport-https
+
+        # Install Helm
+        log "Downloading and installing Helm..."
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        log "Helm installed successfully."
+    else
+        log "Helm is already installed."
+    fi
+
+    # Verify Helm installation
+    helm version || { log "Failed to verify Helm installation."; exit 1; }
+}
+
+# Set up KUBECONFIG
 setup_kubeconfig() {
+    DEFAULT_KUBECONFIG="$HOME/.kube/config"
     if [ -z "$KUBECONFIG" ]; then
-        DEFAULT_KUBECONFIG="$HOME/.kube/config"
-        if [ -f "$DEFAULT_KUBECONFIG" ]; then
-            export KUBECONFIG="$DEFAULT_KUBECONFIG"
-            log "KUBECONFIG is not set. Automatically setting it to $DEFAULT_KUBECONFIG."
-        else
-            log "Kubeconfig file not found at $DEFAULT_KUBECONFIG. Please ensure it exists."
-            exit 1
+        if [ ! -f "$DEFAULT_KUBECONFIG" ]; then
+            log "Kubeconfig not found at $DEFAULT_KUBECONFIG. Initializing Kubernetes..."
+            if ! command -v minikube &>/dev/null; then
+                log "Minikube not found. Installing..."
+                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+                sudo install minikube-linux-amd64 /usr/local/bin/minikube
+            fi
+            minikube start
         fi
+        export KUBECONFIG="$DEFAULT_KUBECONFIG"
+        log "KUBECONFIG set to $DEFAULT_KUBECONFIG."
     else
         log "KUBECONFIG is already set to $KUBECONFIG."
     fi
@@ -34,14 +76,18 @@ test_kubectl() {
     fi
 }
 
-# Check and install yq if not present
-check_and_install_yq() {
-    if ! command -v yq &>/dev/null; then
-        log "yq not found. Installing..."
-        sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
-        sudo chmod +x /usr/local/bin/yq
-    fi
-    log "yq is installed and ready to use."
+# Create namespace
+setup_namespace() {
+    local namespace="alloy"
+    log "Creating namespace: $namespace..."
+    kubectl create namespace "$namespace" || log "Namespace $namespace already exists."
+}
+
+# Add and update Helm repository
+setup_helm_repo() {
+    log "Adding Grafana Helm repository..."
+    helm repo add grafana https://grafana.github.io/helm-charts
+    helm repo update
 }
 
 # Fetch and configure values.yaml
@@ -50,37 +96,32 @@ configure_values_file() {
     log "Fetching default values.yaml for Grafana k8s-monitoring..."
     helm show values grafana/k8s-monitoring > "$values_file"
 
-    if [[ ! -f "$values_file" ]]; then
-        log "Failed to fetch values.yaml. Exiting."
-        exit 1
-    fi
-
     log "Updating custom endpoints in values.yaml..."
-    yq eval '.prometheus.host = "http://10.0.34.144:9090"' -i "$values_file" || log "Failed to update prometheus.host"
-    yq eval '.loki.host = "http://10.0.34.147:3100"' -i "$values_file" || log "Failed to update loki.host"
-    yq eval '.tempo.host = "http://10.0.34.193:3200"' -i "$values_file" || log "Failed to update tempo.host"
-    yq eval '.tempo.hostname = "omega-tempo-dev"' -i "$values_file" || log "Failed to update tempo.hostname"
-    yq eval '.tempo.protocol = "remote_write"' -i "$values_file" || log "Failed to update tempo.protocol"
+    sed -i "s|host:.*|host: \"http://10.0.34.144:9090\"|" "$values_file"      # Prometheus
+    sed -i "s|host:.*|host: \"http://10.0.34.147:3100\"|" "$values_file"    # Loki
+    sed -i "s|host:.*|host: \"http://10.0.34.193:3200\"|" "$values_file"    # Tempo (OMEGA Dev)
+    sed -i "s|hostname:.*|hostname: \"omega-tempo-dev\"|" "$values_file"    # Tempo Hostname
+    sed -i "/protocol:/,/^ *[^ ]/s|protocol:.*|protocol: \"remote_write\"|" "$values_file"
 
     log "Enabling metrics, logs, and pod logs collection in values.yaml..."
-    yq eval '.metrics.enabled = true' -i "$values_file" || log "Failed to enable metrics"
-    yq eval '.logs.enabled = true' -i "$values_file" || log "Failed to enable logs"
-    yq eval '.pod_logs.enabled = true' -i "$values_file" || log "Failed to enable pod logs"
+    sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/pod_logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
 
     log "Enabling additional components: Cost, Kepler, etc..."
-    yq eval '.Cost.enabled = true' -i "$values_file" || log "Failed to enable Cost"
-    yq eval '.Kepler.enabled = true' -i "$values_file" || log "Failed to enable Kepler"
-    yq eval '.node-exporter.enabled = true' -i "$values_file" || log "Failed to enable node-exporter"
-    yq eval '.cluster_events.enabled = true' -i "$values_file" || log "Failed to enable cluster_events"
-    yq eval '.Opencost.enabled = true' -i "$values_file" || log "Failed to enable Opencost"
-    yq eval '.kube-state-metrics.enabled = true' -i "$values_file" || log "Failed to enable kube-state-metrics"
-    yq eval '.prometheus-node-exporter.enabled = true' -i "$values_file" || log "Failed to enable prometheus-node-exporter"
-    yq eval '.prometheus-operator-crds.enabled = true' -i "$values_file" || log "Failed to enable prometheus-operator-crds"
+    sed -i "/Cost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/Kepler:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/cluster_events:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/Opencost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/kube-state-metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/prometheus-node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    sed -i "/prometheus-operator-crds:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
 
-    log "values.yaml updated successfully with OMEGA Tempo configuration."
+    log "values.yaml updated successfully."
 }
 
-# Deploy the monitoring stack using Helm
+# Deploy monitoring stack
 deploy_monitoring_stack() {
     local namespace="alloy"
     local values_file="values.yaml"
@@ -99,13 +140,16 @@ verify_deployment() {
 
 # Main function
 main() {
+    install_kubectl
+    install_helm
     setup_kubeconfig
     test_kubectl
-    check_and_install_yq
+    setup_namespace
+    setup_helm_repo
     configure_values_file
     deploy_monitoring_stack
     verify_deployment
-    log "Grafana monitoring stack setup with OMEGA Tempo completed successfully."
+    log "Grafana monitoring stack setup completed successfully."
 }
 
 # Run the script
