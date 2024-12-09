@@ -33,6 +33,20 @@ install_helm() {
     fi
 }
 
+# Start Minikube and set KUBECONFIG
+start_minikube() {
+    if ! command -v minikube &>/dev/null; then
+        log "Minikube not found. Please install Minikube first."
+        exit 1
+    fi
+
+    log "Starting Minikube..."
+    minikube start
+
+    log "Setting KUBECONFIG to Minikube's kubeconfig..."
+    export KUBECONFIG=$(minikube kubeconfig)
+}
+
 # Create namespace for monitoring stack
 create_namespace() {
     kubectl create namespace alloy || log "Namespace alloy already exists."
@@ -49,35 +63,32 @@ configure_values_file() {
     helm show values grafana/k8s-monitoring > values.yaml
 
     # Modify values.yaml for custom endpoints and settings
-   echo "Updating values.yaml with custom endpoints and configurations..."
+    log "Updating values.yaml with custom endpoints and configurations..."
 
-echo "Updating values.yaml with custom endpoints and configurations..."
+    # Update Prometheus host
+    sed -i 's|^\s*prometheus.host:\s*.*|prometheus.host: "http://10.0.34.144:9090"|' values.yaml  # Prometheus
 
-# Update Prometheus host
-sed -i 's|^\s*prometheus.host:\s*.*|prometheus.host: "http://10.0.34.144:9090"|' values.yaml  # Prometheus
+    # Update Loki host
+    sed -i 's|^\s*loki.host:\s*.*|loki.host: "http://10.0.34.147:3100"|' values.yaml  # Loki
 
-# Update Loki host
-sed -i 's|^\s*loki.host:\s*.*|loki.host: "http://10.0.34.147:3100"|' values.yaml  # Loki
+    # Update Tempo host
+    sed -i 's|^\s*tempo.host:\s*.*|tempo.host: "http://10.0.34.193:3200"|' values.yaml  # Tempo
 
-# Update Tempo host
-sed -i 's|^\s*tempo.host:\s*.*|tempo.host: "http://10.0.34.193:3200"|' values.yaml  # Tempo
+    # Update protocol to "remote_write"
+    sed -i '/^\s*protocol:/s|^\s*protocol:.*|protocol: "remote_write"|' values.yaml  # Protocol
 
-# Update protocol to "remote_write"
-sed -i '/^\s*protocol:/s|^\s*protocol:.*|protocol: "remote_write"|' values.yaml  # Protocol
-
-# Enable required components
-sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Metrics
-sed -i "/logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Logs
-sed -i "/pod_logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Pod Logs
-sed -i "/Cost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Cost
-sed -i "/Kepler:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Kepler
-sed -i "/node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Node Exporter
-sed -i "/cluster_events:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Cluster Events
-sed -i "/Opencost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # OpenCost
-sed -i "/kube-state-metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Kube State Metrics
-sed -i "/prometheus-node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Prometheus Node Exporter
-sed -i "/prometheus-operator-crds:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Prometheus Operator CRDs
-
+    # Enable required components
+    sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Metrics
+    sed -i "/logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Logs
+    sed -i "/pod_logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Pod Logs
+    sed -i "/Cost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Cost
+    sed -i "/Kepler:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Kepler
+    sed -i "/node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Node Exporter
+    sed -i "/cluster_events:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Cluster Events
+    sed -i "/Opencost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # OpenCost
+    sed -i "/kube-state-metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Kube State Metrics
+    sed -i "/prometheus-node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Prometheus Node Exporter
+    sed -i "/prometheus-operator-crds:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml  # Prometheus Operator CRDs
 
     log "values.yaml updated successfully."
 }
@@ -97,6 +108,7 @@ main() {
     log "Starting Grafana Alloy monitoring setup..."
     install_kubectl
     install_helm
+    start_minikube   # Start Minikube and set KUBECONFIG
     create_namespace
     add_helm_repo
     configure_values_file
