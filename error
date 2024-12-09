@@ -18,139 +18,81 @@ install_kubectl() {
     else
         log "kubectl is already installed."
     fi
-
-    # Verify kubectl installation
-    kubectl version --client || { log "Failed to verify kubectl installation."; exit 1; }
 }
 
 # Install Helm
 install_helm() {
     if ! command -v helm &>/dev/null; then
         log "Helm not found. Installing..."
-        
-        # Install prerequisites for Helm
-        log "Installing prerequisites for Helm..."
         sudo apt-get update -y
         sudo apt-get install -y apt-transport-https
-
-        # Install Helm
-        log "Downloading and installing Helm..."
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
         log "Helm installed successfully."
     else
         log "Helm is already installed."
     fi
-
-    # Verify Helm installation
-    helm version || { log "Failed to verify Helm installation."; exit 1; }
 }
 
-# Set up KUBECONFIG
-setup_kubeconfig() {
-    DEFAULT_KUBECONFIG="$HOME/.kube/config"
-    if [ -z "$KUBECONFIG" ]; then
-        if [ ! -f "$DEFAULT_KUBECONFIG" ]; then
-            log "Kubeconfig not found at $DEFAULT_KUBECONFIG. Initializing Kubernetes..."
-            if ! command -v minikube &>/dev/null; then
-                log "Minikube not found. Installing..."
-                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-                sudo install minikube-linux-amd64 /usr/local/bin/minikube
-            fi
-            minikube start
-        fi
-        export KUBECONFIG="$DEFAULT_KUBECONFIG"
-        log "KUBECONFIG set to $DEFAULT_KUBECONFIG."
-    else
-        log "KUBECONFIG is already set to $KUBECONFIG."
-    fi
+# Create namespace for monitoring stack
+create_namespace() {
+    kubectl create namespace alloy || log "Namespace alloy already exists."
 }
 
-# Test kubectl connectivity
-test_kubectl() {
-    log "Testing kubectl connectivity..."
-    if kubectl cluster-info &>/dev/null; then
-        log "Successfully connected to the Kubernetes cluster."
-    else
-        log "Failed to connect to the Kubernetes cluster. Please check your configuration."
-        exit 1
-    fi
-}
-
-# Create namespace
-setup_namespace() {
-    local namespace="alloy"
-    log "Creating namespace: $namespace..."
-    kubectl create namespace "$namespace" || log "Namespace $namespace already exists."
-}
-
-# Add and update Helm repository
-setup_helm_repo() {
-    log "Adding Grafana Helm repository..."
+# Add Helm repo and update
+add_helm_repo() {
     helm repo add grafana https://grafana.github.io/helm-charts
     helm repo update
 }
 
-# Fetch and configure values.yaml
+# Fetch and modify values.yaml
 configure_values_file() {
-    local values_file="values.yaml"
-    log "Fetching default values.yaml for Grafana k8s-monitoring..."
-    helm show values grafana/k8s-monitoring > "$values_file"
+    helm show values grafana/k8s-monitoring > values.yaml
 
-    log "Updating custom endpoints in values.yaml..."
-    sed -i "s|host:.*|host: \"http://10.0.34.144:9090\"|" "$values_file"      # Prometheus
-    sed -i "s|host:.*|host: \"http://10.0.34.147:3100\"|" "$values_file"    # Loki
-    sed -i "s|host:.*|host: \"http://10.0.34.193:3200\"|" "$values_file"    # Tempo (OMEGA Dev)
-    sed -i "s|hostname:.*|hostname: \"omega-tempo-dev\"|" "$values_file"    # Tempo Hostname
-    sed -i "/protocol:/,/^ *[^ ]/s|protocol:.*|protocol: \"remote_write\"|" "$values_file"
+    # Modify values.yaml for custom endpoints and settings
+    log "Updating values.yaml with custom endpoints and configurations..."
+    sed -i "s|host:.*|host: \"http://10.0.34.144:9090\"|" values.yaml  # Prometheus
+    sed -i "s|host:.*|host: \"http://10.0.34.147:3100\"|" values.yaml  # Loki
+    sed -i "s|host:.*|host: \"http://10.0.34.193:3200\"|" values.yaml  # Tempo
+    sed -i "/protocol:/,/^ *[^ ]/s|protocol:.*|protocol: \"remote_write\"|" values.yaml
 
-    log "Enabling metrics, logs, and pod logs collection in values.yaml..."
-    sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/pod_logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-
-    log "Enabling additional components: Cost, Kepler, etc..."
-    sed -i "/Cost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/Kepler:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/cluster_events:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/Opencost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/kube-state-metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/prometheus-node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/prometheus-operator-crds:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+    # Enable required components
+    sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
+    sed -i "/logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
+    sed -i "/pod_logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
+    sed -i "/Cost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
+    sed -i "/Kepler:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
+    sed -i "/node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
+    sed -i "/cluster_events:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
+    sed -i "/Opencost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
+    sed -i "/kube-state-metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
+    sed -i "/prometheus-node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
+    sed -i "/prometheus-operator-crds:/,/^ *[^ ]/s|enabled:.*|enabled: true|" values.yaml
 
     log "values.yaml updated successfully."
 }
 
-# Deploy monitoring stack
-deploy_monitoring_stack() {
-    local namespace="alloy"
-    local values_file="values.yaml"
-
-    log "Deploying Grafana k8s-monitoring stack to namespace $namespace..."
-    helm install -n "$namespace" grafana-k8s-monitoring grafana/k8s-monitoring -f "$values_file"
+# Deploy Grafana Alloy monitoring stack
+deploy_stack() {
+    helm install -n alloy grafana-k8s-monitoring grafana/k8s-monitoring -f values.yaml
 }
 
 # Verify deployment
 verify_deployment() {
-    local namespace="alloy"
-    log "Verifying deployment in namespace $namespace..."
-    kubectl get pods -n "$namespace"
-    log "Note: The OpenCost pod may not run initially as it requires additional configuration. Please configure OpenCost separately for cost management."
+    kubectl get pods -n alloy
 }
 
-# Main function
+# Main function to execute steps
 main() {
+    log "Starting Grafana Alloy monitoring setup..."
     install_kubectl
     install_helm
-    setup_kubeconfig
-    test_kubectl
-    setup_namespace
-    setup_helm_repo
+    create_namespace
+    add_helm_repo
     configure_values_file
-    deploy_monitoring_stack
+    deploy_stack
     verify_deployment
-    log "Grafana monitoring stack setup completed successfully."
+    log "Grafana Alloy monitoring stack deployment completed."
 }
 
-# Run the script
+# Run the main function
 main
