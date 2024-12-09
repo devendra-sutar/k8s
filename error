@@ -67,18 +67,21 @@ configure_values_file() {
     # Update Prometheus host
     log "Updating Prometheus host..."
     yq e '.prometheus.host = "http://10.0.34.144:9090"' -i values.yaml
+ 
 
     # Update Loki host
     log "Updating Loki host..."
     yq e '.loki.host = "http://10.0.34.147:3100"' -i values.yaml
+   
 
     # Update Tempo host
     log "Updating Tempo host..."
     yq e '.tempo.host = "http://10.0.34.193:3200"' -i values.yaml
-
+    
     # Update protocol to "remote_write"
     log "Updating protocol..."
     yq e '.protocol = "remote_write"' -i values.yaml
+   
 
     # Enable required components
     log "Enabling required components..."
