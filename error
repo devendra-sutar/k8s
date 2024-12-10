@@ -1,38 +1,78 @@
-# Use a base image with Ubuntu
-FROM ubuntu:20.04
+#!/bin/bash
 
-# Set environment variables to avoid interactive prompts during installation
-ENV DEBIAN_FRONTEND=noninteractive
+# Configuration Variables
+OMEGA="omega"
+IP="http://10.0.34.144:9090"
+LOKI_HOST="http://10.0.34.147:3100"
+TEMPO_HOST="http://10.0.34.193:3200"
+VALUES="values.yml"
+NAMESPACE="alloy"
+TRUE="true"
 
-# Install required dependencies (curl, kubectl, helm, etc.)
-RUN apt-get update && \
-    apt-get install -y \
-    curl \
-    apt-transport-https \
-    ca-certificates \
-    sudo \
-    bash \
-    && apt-get clean
+# Step 1: Install kubectl
+echo "Downloading the latest stable release of kubectl..."
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl
+echo "kubectl downloaded and made executable."
 
-# Download kubectl and set it up
-RUN curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
-    && chmod +x /usr/local/bin/kubectl
+echo "Moving kubectl to /usr/local/bin..."
+sudo mv kubectl /usr/local/bin/
 
-# Install Helm
-RUN curl -O https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# Step 2: Install Helm
+echo "Installing prerequisites for Helm (if not already installed)..."
+sudo apt-get install apt-transport-https -y
 
-# Set the working directory to /scripts
-WORKDIR /scripts
+echo "Installing Helm (Helm 3)..."
+curl -s https://get.helm.sh/helm-v3.9.0-linux-amd64.tar.gz | tar xz
+sudo mv linux-amd64/helm /usr/local/bin/helm
+echo "Helm installation completed."
 
-# Copy the script.sh and modify-values.sh into the container
-COPY setup.sh /scripts/setup.sh
-COPY modify-values.sh /scripts/modify-values.sh
+# Step 3: Create Kubernetes Namespace for Alloy
+echo "Creating Kubernetes namespace 'alloy'..."
+kubectl create namespace $NAMESPACE || echo "Namespace $NAMESPACE already exists."
 
-# Make the scripts executable
-RUN chmod +x /scripts/setup.sh /scripts/modify-values.sh
+# Step 4: Add the Grafana Helm Chart Repository
+echo "Adding Grafana Helm chart repository..."
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
 
-# Define the entrypoint for the container (you can call setup.sh here)
-ENTRYPOINT ["/scripts/setup.sh"]
+# Step 5: Modify the values.yaml file
+echo "Scraping default values.yml file from Grafana Helm chart..."
+helm show values grafana/k8s-monitoring > $VALUES
 
-# Run the script
-CMD ["bash"]
+echo "Modifying values.yml with custom configurations..."
+# Update cluster name
+sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
+IP=$(echo "$IP" | sed 's/\//\\\//g')
+sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
+
+# Update Loki and Tempo endpoints
+sed -i -e "/^\s*loki:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$LOKI_HOST\"|" "$VALUES"
+sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VALUES"
+
+# Enable necessary features
+sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+
+# Enable Opencost
+sed -i '/^opencost:/,/^ *enabled:/s/false/true/' "$VALUES"
+echo "Opencost enabled in values.yml."
+
+echo "Finished modifying values.yml."
+
+# Step 6: Install Grafana Alloy Monitoring Stack using Helm
+echo "Installing Grafana Alloy stack in the 'alloy' namespace..."
+helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
+
+# Step 7: Verify Pods are Running
+echo "Verifying that all necessary pods are running..."
+kubectl get pods -n $NAMESPACE
+
+# Step 8: Set Up Grafana Dashboards
+echo "Set up Grafana dashboards..."
+echo "To visualize the data in Grafana, navigate to http://<grafana-server-ip>:3000"
+echo "Login with the admin credentials and import pre-built Kubernetes dashboards."
+echo "Ensure data sources are configured correctly for Prometheus, Loki, and Tempo."
+
+# End of Script
+echo "Rancher Kubernetes Monitoring setup with Grafana Alloy completed."
