@@ -1,129 +1,92 @@
 #!/bin/bash
 
-set -e  # Exit immediately if a command exits with a non-zero status
+set -e # Exit on any error
+
+# Variables
+OMEGA="omega"
+IP="http://10.0.34.144:9090"
+LOKI_HOST="http://10.0.34.147:3100"
+TEMPO_HOST="http://10.0.34.193:3200"
+
+TRUE="true"
+ENDPOINT="/api/vl/write"
+VALUES="values.yml"
+NAMESPACE="alloy"
+
+API_ENDPOINT="https://10.0.34.181:8000/api/vl/agents/"
+HOST_IP=$(hostname -I | awk '{print $1}')
+OMEGA_UID="310b297d-29c9-4407-9506-e7bc5e7fbf46"
+AGENT_NAME="Linux"
+HOSTNAME=$(hostname)
+ALLOY_PORT=8080
 
 # Function to log messages
-#log() {
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
-#}
+log() {
+    echo "$(date +'%Y-%m-%d %H:%M:%S') - $1"
+}
 
-# Install kubectl
-install_kubectl() {
-if ! command -v kubectl &>/dev/null; then
-        log "kubectl not found. Installing..."
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-        sudo  chmod +x kubectl
-        sudo mv kubectl /usr/local/bin/
-        log "kubectl installed successfully."
+log "Starting setup process..."
+
+# Install prerequisites
+log "Downloading and installing kubectl..."
+curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+
+log "Installing apt-transport-https..."
+sudo apt-get update && sudo apt-get install -y apt-transport-https
+
+log "Installing Helm (Helm 3)..."
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# Kubernetes setup
+log "Creating namespace $NAMESPACE..."
+sudo kubectl create namespace $NAMESPACE || log "Namespace $NAMESPACE already exists."
+
+log "Adding Grafana Helm chart repository..."
+sudo helm repo add grafana https://grafana.github.io/helm-charts
+sudo helm repo update
+
+log "Fetching default values from Grafana's k8s-monitoring Helm chart..."
+helm show values grafana/k8s-monitoring > $VALUES
+
+# Modify Helm values
+log "Updating values.yml with custom settings..."
+sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
+sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
+sed -i -e "/^\s*loki:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$LOKI_HOST\"|" "$VALUES"
+sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VALUES"
+sed -i "/queryEndpoint:/,/^ writeEndpoint:/s|writeEndpoint: .|writeEndpoint: $ENDPOINT|" "$VALUES"
+sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+
+# Install the Helm chart
+log "Installing Grafana k8s-monitoring chart into $NAMESPACE namespace..."
+sudo helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
+
+# Register an agent with the API
+log "Registering a new agent with API..."
+response=$(curl -k -s -w "\n%{http_code}" -X POST "$API_ENDPOINT" \
+    -H "Content-type: application/json" \
+    -d '{
+        "host_name": "'$HOSTNAME'",
+        "ip_port": "'$HOST_IP:$ALLOY_PORT'",
+        "keycloak_id": "'"$OMEGA_UID"'",
+        "agent_name": "'"$AGENT_NAME"'",
+        "status": "Active"
+    }')
+
+http_code=$(echo "$response" | tail -n1)
+response_body=$(echo "$response" | sed '$d')
+
+if [ "$http_code" -eq 200 ]; then
+    log "Agent created successfully: $response_body"
 else
-        log "kubectl is already installed."
+    log "Failed to create agent. HTTP code: $http_code. Response: $response_body"
 fi
-}
 
-# Install Helm
-install_helm() {
-    if ! command -v helm &>/dev/null; then
-        log "Helm not found. Installing..."
-        sudo apt-get update -y
-        sudo apt-get install -y apt-transport-https
-        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-        log "Helm installed successfully."
-    else
-        log "Helm is already installed."
-    fi
-}
+# Verify installation
+log "Fetching pods in namespace $NAMESPACE..."
+sudo kubectl get pods -n $NAMESPACE
 
-sudo apt install docker.io -y
-
-# Start Minikube and set KUBECONFIG
-start_minikube() {
-    if ! command -v minikube &>/dev/null; then
-        log "Minikube not found. Please install Minikube first."
-        exit 1
-    fi
-
-    log "Starting Minikube..."
-    sudo usermod -aG docker $USER && newgrp docker
-    minikube start
-
-    log "Setting KUBECONFIG to Minikube's kubeconfig..."
-    export KUBECONFIG=$(minikube kubeconfig)
-}
-minikube start
-# Create namespace for monitoring stack
-#create_namespace() {
-    kubectl create namespace alloy || log "Namespace alloy already exists."
-#}
-
-# Add Helm repo and update
-#add_helm_repo() {
-    helm repo add grafana https://grafana.github.io/helm-charts
-    helm repo update
-#}
-
-# Fetch and modify values.yaml
-    helm show values grafana/k8s-monitoring > values.yaml
-
-    log "Updating values.yaml with custom endpoints and configurations..."
-
-    # Update Prometheus host
-    log "Updating Prometheus host..."
-    yq e '.prometheus.host = "http://10.0.34.144:9090"' -i values.yaml
- 
-
-    # Update Loki host
-    log "Updating Loki host..."
-    yq e '.loki.host = "http://10.0.34.147:3100"' -i values.yaml
-   
-
-    # Update Tempo host
-    log "Updating Tempo host..."
-    yq e '.tempo.host = "http://10.0.34.193:3200"' -i values.yaml
-    
-    # Update protocol to "remote_write"
-    log "Updating protocol..."
-    yq e '.protocol = "remote_write"' -i values.yaml
-   
-
-    # Enable required components
-    log "Enabling required components..."
-    yq e '.metrics.enabled = true' -i values.yaml
-    yq e '.logs.enabled = true' -i values.yaml
-    yq e '.pod_logs.enabled = true' -i values.yaml
-    yq e '.Cost.enabled = true' -i values.yaml
-    yq e '.Kepler.enabled = true' -i values.yaml
-    yq e '.node-exporter.enabled = true' -i values.yaml
-    yq e '.cluster_events.enabled = true' -i values.yaml
-    yq e '.Opencost.enabled = true' -i values.yaml
-    yq e '.kube-state-metrics.enabled = true' -i values.yaml
-    yq e '.prometheus-node-exporter.enabled = true' -i values.yaml
-    yq e '.prometheus-operator-crds.enabled = true' -i values.yaml
-
-    log "values.yaml updated successfully."
-
-# Deploy Grafana Alloy monitoring stack
-#deploy_stack() {
-    helm install -n alloy grafana-k8s-monitoring grafana/k8s-monitoring -f values.yaml
-#}
-
-# Verify deployment
-#verify_deployment() {
-    kubectl get pods -n alloy
-#}
-
-# Main function to execute steps
-main() {
-    log "Starting Grafana Alloy monitoring setup..."
-    install_kubectl
-    install_helm
-    start_minikube   # Start Minikube and set KUBECONFIG
-#    create_namespace
-#    add_helm_repo
-#    configure_values_file
-#    deploy_stack
-#    verify_deployment
- #   log "Grafana Alloy monitoring stack deployment completed."
-}
-
-# Run the main function
-main
+log "Setup process completed."
