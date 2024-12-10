@@ -35,7 +35,14 @@ echo "Adding Grafana Helm chart repository..."
 helm repo add grafana https://grafana.github.io/helm-charts
 helm repo update
 
-# Step 5: Modify the values.yaml file
+# Step 5: Create a Kubernetes Secret for Prometheus Authentication
+echo "Creating Kubernetes Secret for Prometheus authentication..."
+kubectl create secret generic prometheus-k8s-monitoring \
+--from-literal=username='admin' \
+--from-literal=password='admin' \
+-n $NAMESPACE
+
+# Step 6: Modify the values.yaml file
 echo "Scraping default values.yml file from Grafana Helm chart..."
 helm show values grafana/k8s-monitoring > $VALUES
 
@@ -52,6 +59,7 @@ sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VAL
 # Enable necessary features
 sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/cost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/cluster_events:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/opencost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
@@ -59,27 +67,28 @@ sed -i "/kube-state-metrics:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
-# Add OpenCost configuration
-echo "Enabling OpenCost in values.yml..."
+# Set Prometheus authentication credentials for OpenCost
+echo "Setting Prometheus authentication credentials for OpenCost..."
 cat <<EOF >> $VALUES
-
 opencost:
   enabled: true
   prometheus:
-    url: http://prometheus-server:9090   # Ensure this is correct
+    url: http://prometheus-server:9090
+    username: admin
+    password: admin
 EOF
 
 echo "Finished modifying values.yml."
 
-# Step 6: Install Grafana Alloy Monitoring Stack using Helm
+# Step 7: Install Grafana Alloy Monitoring Stack using Helm
 echo "Installing Grafana Alloy stack in the 'alloy' namespace..."
 helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
 
-# Step 7: Verify Pods are Running
+# Step 8: Verify Pods are Running
 echo "Verifying that all necessary pods are running..."
 kubectl get pods -n $NAMESPACE
 
-# Step 8: Set Up Grafana Dashboards
+# Step 9: Set Up Grafana Dashboards
 echo "Set up Grafana dashboards..."
 echo "To visualize the data in Grafana, navigate to http://<grafana-server-ip>:3000"
 echo "Login with the admin credentials and import pre-built Kubernetes dashboards."
