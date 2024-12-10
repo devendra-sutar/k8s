@@ -1,94 +1,47 @@
-#!/bin/bash
-
-# Configuration Variables
-OMEGA="omega"
-PROMETHEUS_IP="http://10.0.34.144:9090"
-LOKI_HOST="http://10.0.34.147:3100"
-TEMPO_HOST="http://10.0.34.193:3200"
-VALUES="values.yml"
-NAMESPACE="alloy"
-
-# Step 1: Install kubectl
-echo "Downloading the latest stable release of kubectl..."
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-chmod +x kubectl
-sudo mv kubectl /usr/local/bin/
-echo "kubectl installed successfully."
-
-# Step 2: Install Helm
-echo "Installing Helm..."
-curl -s https://get.helm.sh/helm-v3.9.0-linux-amd64.tar.gz | tar xz
-sudo mv linux-amd64/helm /usr/local/bin/helm
-echo "Helm installed successfully."
-
-# Step 3: Create Kubernetes Namespace
-echo "Creating namespace '$NAMESPACE'..."
-kubectl create namespace $NAMESPACE || echo "Namespace '$NAMESPACE' already exists."
-
-# Step 4: Add Grafana Helm Chart
-echo "Adding Grafana Helm repository..."
-helm repo add grafana https://grafana.github.io/helm-charts
-helm repo update
-
-# Step 5: Fetch and Modify values.yml
-echo "Fetching default values.yml file..."
-helm show values grafana/k8s-monitoring > $VALUES
-
-echo "Modifying values.yml..."
-# Set cluster name and Prometheus, Loki, Tempo configuration
-sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
-PROMETHEUS_IP_ESCAPED=$(echo "$PROMETHEUS_IP" | sed 's/\//\\\//g')
-sed -i "/prometheus:/,/^ *host:/s|host: \"\"|host: \"$PROMETHEUS_IP_ESCAPED\"|" "$VALUES"
-sed -i -e "/^\s*loki:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$LOKI_HOST\"|" "$VALUES"
-sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VALUES"
-
-# Enable all necessary features
-sed -i "/traces:/,/^ *enabled: false/s/false/true/" "$VALUES"
-sed -i "/kepler:/,/^ *enabled: false/s/false/true/" "$VALUES"
-sed -i "/opencost:/,/^ *enabled: false/s/false/true/" "$VALUES"
-sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/true/" "$VALUES"
-sed -i "/kube-state-metrics:/,/^ *enabled: false/s/false/true/" "$VALUES"
-
-# Add OpenCost Prometheus credentials
-cat <<EOF >> $VALUES
-opencost:
-  enabled: true
-  prometheus:
-    url: "$PROMETHEUS_IP"
-    username: "admin"
-    password: "admin"
-EOF
-
-echo "values.yml modifications completed."
-
-# Step 6: Install Grafana Monitoring Stack
-echo "Installing Grafana Monitoring Stack..."
-helm install grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES -n $NAMESPACE
-
-# Step 7: Verify Pods
-echo "Verifying that all necessary pods are running..."
-kubectl get pods -n $NAMESPACE
-
-# Step 8: Expose Grafana Service
-echo "Exposing Grafana service..."
-GRAFANA_DEPLOYMENT=$(kubectl get deployments -n $NAMESPACE | grep grafana | awk '{print $1}')
-
-if [ -n "$GRAFANA_DEPLOYMENT" ]; then
-  kubectl expose deployment $GRAFANA_DEPLOYMENT \
-    --type=NodePort \
-    --name=grafana-external \
-    --port=3000 --target-port=12345 -n $NAMESPACE
-
-  echo "Fetching NodePort for Grafana..."
-  NODE_PORT=$(kubectl get svc grafana-external -n $NAMESPACE -o=jsonpath='{.spec.ports[0].nodePort}')
-
-  echo "Fetching Node IP..."
-  NODE_IP=$(kubectl get nodes -o=jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-
-  echo "Grafana UI is available at: http://$NODE_IP:$NODE_PORT"
-else
-  echo "Grafana deployment not found. Please check the Helm installation or deployment status."
-fi
-
-# End of Script
-echo "Grafana Monitoring Setup Completed!"
+./final.sh 
+Checking if kubectl and helm are installed...
+Starting download of kubectl...
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   138  100   138    0     0    444      0 --:--:-- --:--:-- --:--:--   443
+100 53.7M  100 53.7M    0     0  41.4M      0  0:00:01  0:00:01 --:--:-- 68.6M
+Making kubectl binary executable...
+Moving kubectl to /usr/local/bin...
+Install Prerequisites for Helm (if not already installed)
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+Note, selecting 'apt' instead of 'apt-transport-https'
+apt is already the newest version (2.7.14build2).
+0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Install Helm (Helm 3)
+scripts.get-helm-3: line 1: 404:: command not found
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    14  100    14    0     0     36      0 --:--:-- --:--:-- --:--:--    36
+Creating namespace alloy
+The connection to the server localhost:8080 was refused - did you specify the right host or port?
+Namespace alloy already exists
+Adding Grafana Helm chart repository...
+"grafana" already exists with the same configuration, skipping
+Updating Helm repository...
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "grafana" chart repository
+Update Complete. ⎈Happy Helming!⎈
+Fetching the default values.yml from Grafana Helm chart...
+Modifying values.yml...
+Installing Grafana Monitoring Stack...
+Error: INSTALLATION FAILED: Kubernetes cluster unreachable: Get "http://localhost:8080/version": dial tcp 127.0.0.1:8080: connect: connection refused
+Verifying pods in the alloy namespace...
+E1210 10:24:56.990475    2413 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"http://localhost:8080/api?timeout=32s\": dial tcp 127.0.0.1:8080: connect: connection refused"
+E1210 10:24:56.992202    2413 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"http://localhost:8080/api?timeout=32s\": dial tcp 127.0.0.1:8080: connect: connection refused"
+E1210 10:24:56.994112    2413 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"http://localhost:8080/api?timeout=32s\": dial tcp 127.0.0.1:8080: connect: connection refused"
+E1210 10:24:56.996085    2413 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"http://localhost:8080/api?timeout=32s\": dial tcp 127.0.0.1:8080: connect: connection refused"
+E1210 10:24:56.997667    2413 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"http://localhost:8080/api?timeout=32s\": dial tcp 127.0.0.1:8080: connect: connection refused"
+The connection to the server localhost:8080 was refused - did you specify the right host or port?
+Access Grafana at http://<grafana-server-ip>:3000. Default credentials: admin/admin
+Setting up Kubernetes Dashboards in Grafana...
+Importing Kubernetes Dashboards into Grafana...
+Once dashboards are imported, go to Grafana's Dashboard to monitor Kubernetes Cluster health.
+Monitor Cluster Overview, Node Details, Workloads, Namespaces, etc.
+Script completed!
