@@ -1,92 +1,38 @@
-#!/bin/bash
+# Use a base image with Ubuntu
+FROM ubuntu:20.04
 
-set -e # Exit on any error
+# Set environment variables to avoid interactive prompts during installation
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Variables
-OMEGA="omega"
-IP="http://10.0.34.144:9090"
-LOKI_HOST="http://10.0.34.147:3100"
-TEMPO_HOST="http://10.0.34.193:3200"
+# Install required dependencies (curl, kubectl, helm, etc.)
+RUN apt-get update && \
+    apt-get install -y \
+    curl \
+    apt-transport-https \
+    ca-certificates \
+    sudo \
+    bash \
+    && apt-get clean
 
-TRUE="true"
-ENDPOINT="/api/vl/write"
-VALUES="values.yml"
-NAMESPACE="alloy"
+# Download kubectl and set it up
+RUN curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+    && chmod +x /usr/local/bin/kubectl
 
-API_ENDPOINT="https://10.0.34.181:8000/api/vl/agents/"
-HOST_IP=$(hostname -I | awk '{print $1}')
-OMEGA_UID="310b297d-29c9-4407-9506-e7bc5e7fbf46"
-AGENT_NAME="Linux"
-HOSTNAME=$(hostname)
-ALLOY_PORT=8080
+# Install Helm
+RUN curl -O https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-# Function to log messages
-log() {
-    echo "$(date +'%Y-%m-%d %H:%M:%S') - $1"
-}
+# Set the working directory to /scripts
+WORKDIR /scripts
 
-log "Starting setup process..."
+# Copy the script.sh and modify-values.sh into the container
+COPY setup.sh /scripts/setup.sh
+COPY modify-values.sh /scripts/modify-values.sh
 
-# Install prerequisites
-log "Downloading and installing kubectl..."
-curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-chmod +x kubectl
-sudo mv kubectl /usr/local/bin/
+# Make the scripts executable
+RUN chmod +x /scripts/setup.sh /scripts/modify-values.sh
 
-log "Installing apt-transport-https..."
-sudo apt-get update && sudo apt-get install -y apt-transport-https
+# Define the entrypoint for the container (you can call setup.sh here)
+ENTRYPOINT ["/scripts/setup.sh"]
 
-log "Installing Helm (Helm 3)..."
-curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-# Kubernetes setup
-log "Creating namespace $NAMESPACE..."
-sudo kubectl create namespace $NAMESPACE || log "Namespace $NAMESPACE already exists."
-
-log "Adding Grafana Helm chart repository..."
-sudo helm repo add grafana https://grafana.github.io/helm-charts
-sudo helm repo update
-
-log "Fetching default values from Grafana's k8s-monitoring Helm chart..."
-helm show values grafana/k8s-monitoring > $VALUES
-
-# Modify Helm values
-log "Updating values.yml with custom settings..."
-sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
-sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
-sed -i -e "/^\s*loki:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$LOKI_HOST\"|" "$VALUES"
-sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VALUES"
-sed -i "/queryEndpoint:/,/^ writeEndpoint:/s|writeEndpoint: .|writeEndpoint: $ENDPOINT|" "$VALUES"
-sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-
-# Install the Helm chart
-log "Installing Grafana k8s-monitoring chart into $NAMESPACE namespace..."
-sudo helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
-
-# Register an agent with the API
-log "Registering a new agent with API..."
-response=$(curl -k -s -w "\n%{http_code}" -X POST "$API_ENDPOINT" \
-    -H "Content-type: application/json" \
-    -d '{
-        "host_name": "'$HOSTNAME'",
-        "ip_port": "'$HOST_IP:$ALLOY_PORT'",
-        "keycloak_id": "'"$OMEGA_UID"'",
-        "agent_name": "'"$AGENT_NAME"'",
-        "status": "Active"
-    }')
-
-http_code=$(echo "$response" | tail -n1)
-response_body=$(echo "$response" | sed '$d')
-
-if [ "$http_code" -eq 200 ]; then
-    log "Agent created successfully: $response_body"
-else
-    log "Failed to create agent. HTTP code: $http_code. Response: $response_body"
-fi
-
-# Verify installation
-log "Fetching pods in namespace $NAMESPACE..."
-sudo kubectl get pods -n $NAMESPACE
-
-log "Setup process completed."
+# Run the script
+CMD ["bash"]
