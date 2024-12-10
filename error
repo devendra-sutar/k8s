@@ -75,6 +75,13 @@ sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VAL
 sed -i "/queryEndpoint:/,/^ writeEndpoint:/s|writeEndpoint: .|writeEndpoint: $ENDPOINT|" "$VALUES"
 sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
+# Disable conflicting Prometheus setups for OpenCost
+echo "Disabling conflicting Prometheus setups..."
+sed -i '/opencost:/,/^ *prometheus:/s/prometheus:.*/prometheus:\n    enabled: false/' "$VALUES"
+
+# Enable Prometheus in the configuration
+sed -i '/prometheus:/,/^ *enabled:/s/false/true/' "$VALUES"
+
 # Enable additional services in values.yml
 echo "Enabling additional services in values.yml..."
 sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
