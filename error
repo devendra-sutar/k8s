@@ -64,6 +64,7 @@ sed -i "/tempo:/,/^ *host:/s/host: \"\"/host: \"$TEMPO_URL\"/" "$VALUES"
 # Enable OpenCost and configure Prometheus
 sed -i "/opencost:/,/^ *enabled:/s/false/true/" "$VALUES"
 sed -i "/opencost:/,/^ *prometheus:/s|url: \"\"|url: \"$PROMETHEUS_URL\"|" "$VALUES"
+
 # Ensure only one of the Prometheus setups is enabled
 sed -i '/opencost:/,/prometheus:/s/# in:/# in:\n#   scrapeInterval: "15s"\n#   scrapeTimeout: "10s"/' "$VALUES"
 sed -i '/opencost:/,/prometheus:/s/# amp:/# amp:\n#   apiUrl: "http:\/\/prometheus-service.monitoring.svc.cluster.local:9090"/' "$VALUES"
