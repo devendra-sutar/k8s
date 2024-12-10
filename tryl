@@ -1,3 +1,5 @@
-Error: INSTALLATION FAILED: template: k8s-monitoring/templates/alloy-config.yaml:15:330: executing "k8s-monitoring/templates/alloy-config.yaml" at <include "kubernetes_monitoring_telemetry.deployments" .>: error calling include: template: k8s-monitoring/templates/_helpers.tpl:68:7: executing "kubernetes_monitoring_telemetry.deployments" at <index .Values.kepler.enabled>: error calling index: index of untyped nil
-Verifying that all necessary pods are running...
-No resources found in alloy namespace.
+kubectl create secret generic prometheus-k8s-monitoring \
+--from-literal=username='admin' \
+--from-literal=password='admin' \
+--from-literal=host='http://10.0.34.144:9090' \
+-n alloy --dry-run=client -o yaml | kubectl apply -f -
