@@ -7,6 +7,7 @@ LOKI_HOST="http://10.0.34.147:3100"
 TEMPO_HOST="http://10.0.34.193:3200"
 VALUES="values.yml"
 NAMESPACE="alloy"
+TRUE="true"  # Add TRUE variable to enable features
 
 # Step 1: Install kubectl
 echo "Downloading the latest stable release of kubectl..."
