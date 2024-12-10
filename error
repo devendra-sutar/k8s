@@ -2,7 +2,7 @@
 
 # Configuration Variables
 OMEGA="omega"
-PROMETHEUS_IP="http://10.0.34.144:9090"  # Correct Prometheus IP
+PROMETHEUS_IP="http://10.0.34.144:9090"
 LOKI_HOST="http://10.0.34.147:3100"
 TEMPO_HOST="http://10.0.34.193:3200"
 VALUES="values.yml"
@@ -12,87 +12,83 @@ NAMESPACE="alloy"
 echo "Downloading the latest stable release of kubectl..."
 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 chmod +x kubectl
-echo "kubectl downloaded and made executable."
-
-echo "Moving kubectl to /usr/local/bin..."
 sudo mv kubectl /usr/local/bin/
+echo "kubectl installed successfully."
 
 # Step 2: Install Helm
-echo "Installing prerequisites for Helm (if not already installed)..."
-sudo apt-get install apt-transport-https -y
-
-echo "Installing Helm (Helm 3)..."
+echo "Installing Helm..."
 curl -s https://get.helm.sh/helm-v3.9.0-linux-amd64.tar.gz | tar xz
 sudo mv linux-amd64/helm /usr/local/bin/helm
-echo "Helm installation completed."
+echo "Helm installed successfully."
 
-# Step 3: Create Kubernetes Namespace for Alloy
-echo "Creating Kubernetes namespace 'alloy'..."
-kubectl create namespace $NAMESPACE || echo "Namespace $NAMESPACE already exists."
+# Step 3: Create Kubernetes Namespace
+echo "Creating namespace '$NAMESPACE'..."
+kubectl create namespace $NAMESPACE || echo "Namespace '$NAMESPACE' already exists."
 
-# Step 4: Add the Grafana Helm Chart Repository
-echo "Adding Grafana Helm chart repository..."
+# Step 4: Add Grafana Helm Chart
+echo "Adding Grafana Helm repository..."
 helm repo add grafana https://grafana.github.io/helm-charts
 helm repo update
 
-# Step 5: Create a Kubernetes Secret for Prometheus Authentication
-echo "Creating Kubernetes Secret for Prometheus authentication..."
-kubectl create secret generic prometheus-k8s-monitoring \
---from-literal=username='admin' \
---from-literal=password='admin' \
--n $NAMESPACE
-
-# Step 6: Modify the values.yaml file
-echo "Scraping default values.yml file from Grafana Helm chart..."
+# Step 5: Fetch and Modify values.yml
+echo "Fetching default values.yml file..."
 helm show values grafana/k8s-monitoring > $VALUES
 
-echo "Modifying values.yml with custom configurations..."
-# Update cluster name
+echo "Modifying values.yml..."
+# Set cluster name and Prometheus, Loki, Tempo configuration
 sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
-PROMETHEUS_IP=$(echo "$PROMETHEUS_IP" | sed 's/\//\\\//g')
-sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$PROMETHEUS_IP\"/" "$VALUES"
-
-# Update Loki and Tempo endpoints
+PROMETHEUS_IP_ESCAPED=$(echo "$PROMETHEUS_IP" | sed 's/\//\\\//g')
+sed -i "/prometheus:/,/^ *host:/s|host: \"\"|host: \"$PROMETHEUS_IP_ESCAPED\"|" "$VALUES"
 sed -i -e "/^\s*loki:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$LOKI_HOST\"|" "$VALUES"
 sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VALUES"
 
-# Enable necessary features
-sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/cost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/cluster_events:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/opencost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/kube-state-metrics:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+# Enable all necessary features
+sed -i "/traces:/,/^ *enabled: false/s/false/true/" "$VALUES"
+sed -i "/kepler:/,/^ *enabled: false/s/false/true/" "$VALUES"
+sed -i "/opencost:/,/^ *enabled: false/s/false/true/" "$VALUES"
+sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/true/" "$VALUES"
+sed -i "/kube-state-metrics:/,/^ *enabled: false/s/false/true/" "$VALUES"
 
-# Set Prometheus authentication credentials for OpenCost
-echo "Setting Prometheus authentication credentials for OpenCost..."
+# Add OpenCost Prometheus credentials
 cat <<EOF >> $VALUES
 opencost:
   enabled: true
   prometheus:
-    url: $PROMETHEUS_IP
-    username: admin
-    password: admin
+    url: "$PROMETHEUS_IP"
+    username: "admin"
+    password: "admin"
 EOF
 
-echo "Finished modifying values.yml."
+echo "values.yml modifications completed."
 
-# Step 7: Install Grafana Alloy Monitoring Stack using Helm
-echo "Installing Grafana Alloy stack in the 'alloy' namespace..."
-helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
+# Step 6: Install Grafana Monitoring Stack
+echo "Installing Grafana Monitoring Stack..."
+helm install grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES -n $NAMESPACE
 
-# Step 8: Verify Pods are Running
+# Step 7: Verify Pods
 echo "Verifying that all necessary pods are running..."
 kubectl get pods -n $NAMESPACE
 
-# Step 9: Set Up Grafana Dashboards
-echo "Set up Grafana dashboards..."
-echo "To visualize the data in Grafana, navigate to http://<grafana-server-ip>:3000"
-echo "Login with the admin credentials and import pre-built Kubernetes dashboards."
-echo "Ensure data sources are configured correctly for Prometheus, Loki, and Tempo."
+# Step 8: Expose Grafana Service
+echo "Exposing Grafana service..."
+GRAFANA_DEPLOYMENT=$(kubectl get deployments -n $NAMESPACE | grep grafana | awk '{print $1}')
+
+if [ -n "$GRAFANA_DEPLOYMENT" ]; then
+  kubectl expose deployment $GRAFANA_DEPLOYMENT \
+    --type=NodePort \
+    --name=grafana-external \
+    --port=3000 --target-port=3000 -n $NAMESPACE
+
+  echo "Fetching NodePort for Grafana..."
+  NODE_PORT=$(kubectl get svc grafana-external -n $NAMESPACE -o=jsonpath='{.spec.ports[0].nodePort}')
+
+  echo "Fetching Node IP..."
+  NODE_IP=$(kubectl get nodes -o=jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+
+  echo "Grafana UI is available at: http://$NODE_IP:$NODE_PORT"
+else
+  echo "Grafana deployment not found. Please check the Helm installation or deployment status."
+fi
 
 # End of Script
-echo "Rancher Kubernetes Monitoring setup with Grafana Alloy completed."
+echo "Grafana Monitoring Setup Completed!"
