@@ -7,7 +7,6 @@ LOKI_HOST="http://10.0.34.147:3100"
 TEMPO_HOST="http://10.0.34.193:3200"
 VALUES="values.yml"
 NAMESPACE="alloy"
-TRUE="true"
 
 # Step 1: Install kubectl
 echo "Downloading the latest stable release of kubectl..."
@@ -53,7 +52,6 @@ sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VAL
 # Enable necessary features
 sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/cost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/cluster_events:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/opencost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
@@ -61,7 +59,15 @@ sed -i "/kube-state-metrics:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
-echo "All necessary features enabled in values.yml."
+# Add OpenCost configuration
+echo "Enabling OpenCost in values.yml..."
+cat <<EOF >> $VALUES
+
+opencost:
+  enabled: true
+  prometheus:
+    url: http://prometheus-server:9090   # Ensure this is correct
+EOF
 
 echo "Finished modifying values.yml."
 
@@ -80,4 +86,4 @@ echo "Login with the admin credentials and import pre-built Kubernetes dashboard
 echo "Ensure data sources are configured correctly for Prometheus, Loki, and Tempo."
 
 # End of Script
-echo "Rancher Kube
+echo "Rancher Kubernetes Monitoring setup with Grafana Alloy completed."
