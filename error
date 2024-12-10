@@ -92,6 +92,14 @@ sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/opencost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
+# Validate the YAML syntax in values.yml
+echo "Validating YAML syntax in $VALUES..."
+yamllint $VALUES
+if [ $? -ne 0 ]; then
+    echo "YAML syntax is incorrect. Please check the file."
+    exit 1
+fi
+
 # Install Grafana Monitoring Stack using Helm
 echo "Installing Grafana Monitoring Stack using Helm..."
 helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
