@@ -3,3 +3,79 @@ kubectl create secret generic prometheus-k8s-monitoring \
 --from-literal=password='admin' \
 --from-literal=host='http://10.0.34.144:9090' \
 -n alloy --dry-run=client -o yaml | kubectl apply -f -
+
+
+
+
+^Cubuntu@server:~kubectl get svc grafana-k8s-monitoring-alloy  -n alloy  -o yaml
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    meta.helm.sh/release-name: grafana-k8s-monitoring
+    meta.helm.sh/release-namespace: alloy
+  creationTimestamp: "2024-12-10T07:29:22Z"
+  labels:
+    app.kubernetes.io/component: networking
+    app.kubernetes.io/instance: grafana-k8s-monitoring
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/part-of: alloy
+    app.kubernetes.io/version: v1.5.1
+    helm.sh/chart: alloy-0.10.1
+  name: grafana-k8s-monitoring-alloy
+  namespace: alloy
+  resourceVersion: "54265"
+  uid: e4b65d72-abb1-4502-852f-7afb4fd236f3
+spec:
+  clusterIP: 10.104.236.96
+  clusterIPs:
+  - 10.104.236.96
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http-metrics
+    port: 12345
+    protocol: TCP
+    targetPort: 12345
+  - name: otlp-grpc
+    port: 4317
+    protocol: TCP
+    targetPort: 4317
+  - name: otlp-http
+    port: 4318
+    protocol: TCP
+    targetPort: 4318
+  - name: prometheus
+    port: 9999
+    protocol: TCP
+    targetPort: 9999
+  - name: jaeger-grpc
+    port: 14250
+    protocol: TCP
+    targetPort: 14250
+  - name: jaeger-binary
+    port: 6832
+    protocol: TCP
+    targetPort: 6832
+  - name: jaeger-compact
+    port: 6831
+    protocol: TCP
+    targetPort: 6831
+  - name: jaeger-http
+    port: 14268
+    protocol: TCP
+    targetPort: 14268
+  - name: zipkin
+    port: 9411
+    protocol: TCP
+    targetPort: 9411
+  selector:
+    app.kubernetes.io/instance: grafana-k8s-monitoring
+    app.kubernetes.io/name: alloy
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}
