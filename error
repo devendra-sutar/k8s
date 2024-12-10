@@ -2,15 +2,13 @@
 
 # Configuration Variables
 OMEGA="omega"
-IP="http://10.0.34.144:9090"
-LOKI_HOST="http://10.0.34.147:3100"
-TEMPO_HOST="http://10.0.34.193:3200"
-TRUE="true"
-ENDPOINT="/api/vl/write"
+PROMETHEUS_URL="http://10.0.34.144:9090"
+LOKI_URL="http://10.0.34.147:3100"
+TEMPO_URL="http://10.0.34.193:3200"
 VALUES="values.yml"
 NAMESPACE="alloy"
 
-# Check if kubectl is installed
+# 1. Install kubectl if not installed
 echo "Checking if kubectl is installed..."
 if ! command -v kubectl &> /dev/null
 then
@@ -23,7 +21,7 @@ else
     echo "kubectl is already installed"
 fi
 
-# Check if helm is installed
+# 2. Install Helm if not installed
 echo "Checking if Helm is installed..."
 if ! command -v helm &> /dev/null
 then
@@ -35,50 +33,47 @@ else
     echo "Helm is already installed"
 fi
 
-# Check if kubectl is configured properly
-echo "Checking if kubectl is configured..."
-kubectl version --client || { echo "kubectl is not configured correctly"; exit 1; }
+# 3. Ensure kubectl is configured
+echo "Checking kubectl configuration..."
+kubectl version --client || { echo "kubectl is not configured correctly."; exit 1; }
 
-# Create namespace alloy
+# 4. Create a namespace for monitoring (alloy)
 echo "Creating namespace alloy..."
 kubectl create namespace $NAMESPACE || echo "Namespace alloy already exists"
 
-# Add Grafana Helm repo and update
+# 5. Add Grafana Helm repository and update
 echo "Adding Grafana Helm chart repository..."
 helm repo add grafana https://grafana.github.io/helm-charts
 helm repo update
-echo "Grafana Helm repo added and updated successfully"
 
-# Fetch default values.yml from Grafana Helm chart
+# 6. Fetch default values.yml from Grafana Helm chart
 echo "Fetching default values.yml from Grafana Helm chart..."
 helm show values grafana/k8s-monitoring > $VALUES
 
-# Modify values.yml for Prometheus, Loki, Tempo, and OpenCost endpoints
-echo "Modifying values.yml for Prometheus, Loki, Tempo, and OpenCost..."
-sed -i "/prometheus:/,/^ *enabled:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
-sed -i "/prometheus:/,/^ *queryEndpoint:/s|queryEndpoint: \"\"|queryEndpoint: \"$IP/api/v1/query\"|" "$VALUES"
+# 7. Modify values.yml to update Prometheus, Loki, Tempo, OpenCost, and other settings
+echo "Modifying values.yml for custom configurations..."
+
+# Update Prometheus, Loki, Tempo, and OpenCost URLs
+sed -i "/prometheus:/,/^ *queryEndpoint:/s|queryEndpoint: \"\"|queryEndpoint: \"$PROMETHEUS_URL/api/v1/query\"|" "$VALUES"
 sed -i "/prometheus:/,/^ *scrapeInterval:/s/scrapeInterval: \"\"/scrapeInterval: \"15s\"/" "$VALUES"
+sed -i "/prometheus:/,/^ *enabled:/s/false/true/" "$VALUES"
 
-sed -i "/loki:/,/^ *host:/s/host: \"\"/host: \"$LOKI_HOST\"/" "$VALUES"
+sed -i "/loki:/,/^ *host:/s/host: \"\"/host: \"$LOKI_URL\"/" "$VALUES"
+sed -i "/tempo:/,/^ *host:/s/host: \"\"/host: \"$TEMPO_URL\"/" "$VALUES"
 
-sed -i "/tempo:/,/^ *host:/s/host: \"\"/host: \"$TEMPO_HOST\"/" "$VALUES"
-
-# Enable and configure OpenCost in values.yml
+# Enable OpenCost and configure Prometheus
 sed -i "/opencost:/,/^ *enabled:/s/false/true/" "$VALUES"
-sed -i "/opencost:/,/^ *prometheus:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
-sed -i "/opencost:/,/^ *prometheus:/s|url: \"\"|url: \"$IP\"|" "$VALUES"
+sed -i "/opencost:/,/^ *prometheus:/s|url: \"\"|url: \"$PROMETHEUS_URL\"|" "$VALUES"
 
-# Enable required components in values.yml
-echo "Enabling required components in values.yml..."
-sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/cluster_events:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/kube-state-metrics:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+# Enable additional components in values.yml
+sed -i "/kepler:/,/^ *enabled: false/s/false/true/" "$VALUES"
+sed -i "/node-exporter:/,/^ *enabled: false/s/false/true/" "$VALUES"
+sed -i "/cluster_events:/,/^ *enabled: false/s/false/true/" "$VALUES"
+sed -i "/kube-state-metrics:/,/^ *enabled: false/s/false/true/" "$VALUES"
+sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/true/" "$VALUES"
+sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/true/" "$VALUES"
 
-# Install Grafana Monitoring Stack using Helm
+# 8. Install Grafana Monitoring Stack using Helm
 echo "Installing Grafana Monitoring Stack using Helm..."
 helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
 if [ $? -ne 0 ]; then
@@ -86,16 +81,18 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Verify if Grafana pods are running in the alloy namespace
+# 9. Verify if Grafana pods are running in the alloy namespace
 echo "Verifying Grafana pods in the alloy namespace..."
-kubectl get pods -n $NAMESPACE || { echo "Error: Could not verify pods."; exit 1; }
+kubectl get pods -n $NAMESPACE
 
-# Provide access instructions for Grafana
+# 10. Provide access instructions for Grafana
 echo "Access Grafana at http://<grafana-server-ip>:3000. Default credentials: admin/admin."
 
-# Set up Kubernetes Dashboards in Grafana
+# 11. Set up Kubernetes Dashboards in Grafana
 echo "Setting up Kubernetes dashboards in Grafana..."
-# Here we assume Grafana's Dashboards are pre-configured or will be imported manually
+# These dashboards should be manually imported in Grafana
+# Instructions: Navigate to Dashboards > Import > Select prebuilt Kubernetes dashboards
+echo "Import prebuilt Kubernetes dashboards and link to the correct data sources (Prometheus, Loki, Tempo)."
 
 # Final message
 echo "Script completed successfully!"
