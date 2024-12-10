@@ -3,21 +3,21 @@
 set -e  # Exit immediately if a command exits with a non-zero status
 
 # Function to log messages
-log() {
+#log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
-}
+#}
 
 # Install kubectl
 install_kubectl() {
-    if ! command -v kubectl &>/dev/null; then
+if ! command -v kubectl &>/dev/null; then
         log "kubectl not found. Installing..."
         curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-        chmod +x kubectl
+        sudo  chmod +x kubectl
         sudo mv kubectl /usr/local/bin/
         log "kubectl installed successfully."
-    else
+else
         log "kubectl is already installed."
-    fi
+fi
 }
 
 # Install Helm
@@ -33,6 +33,8 @@ install_helm() {
     fi
 }
 
+sudo apt install docker.io -y
+
 # Start Minikube and set KUBECONFIG
 start_minikube() {
     if ! command -v minikube &>/dev/null; then
@@ -41,25 +43,25 @@ start_minikube() {
     fi
 
     log "Starting Minikube..."
+    sudo usermod -aG docker $USER && newgrp docker
     minikube start
 
     log "Setting KUBECONFIG to Minikube's kubeconfig..."
     export KUBECONFIG=$(minikube kubeconfig)
 }
-
+minikube start
 # Create namespace for monitoring stack
-create_namespace() {
+#create_namespace() {
     kubectl create namespace alloy || log "Namespace alloy already exists."
-}
+#}
 
 # Add Helm repo and update
-add_helm_repo() {
+#add_helm_repo() {
     helm repo add grafana https://grafana.github.io/helm-charts
     helm repo update
-}
+#}
 
 # Fetch and modify values.yaml
-configure_values_file() {
     helm show values grafana/k8s-monitoring > values.yaml
 
     log "Updating values.yaml with custom endpoints and configurations..."
@@ -98,17 +100,16 @@ configure_values_file() {
     yq e '.prometheus-operator-crds.enabled = true' -i values.yaml
 
     log "values.yaml updated successfully."
-}
 
 # Deploy Grafana Alloy monitoring stack
-deploy_stack() {
+#deploy_stack() {
     helm install -n alloy grafana-k8s-monitoring grafana/k8s-monitoring -f values.yaml
-}
+#}
 
 # Verify deployment
-verify_deployment() {
+#verify_deployment() {
     kubectl get pods -n alloy
-}
+#}
 
 # Main function to execute steps
 main() {
@@ -116,12 +117,12 @@ main() {
     install_kubectl
     install_helm
     start_minikube   # Start Minikube and set KUBECONFIG
-    create_namespace
-    add_helm_repo
-    configure_values_file
-    deploy_stack
-    verify_deployment
-    log "Grafana Alloy monitoring stack deployment completed."
+#    create_namespace
+#    add_helm_repo
+#    configure_values_file
+#    deploy_stack
+#    verify_deployment
+ #   log "Grafana Alloy monitoring stack deployment completed."
 }
 
 # Run the main function
