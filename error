@@ -10,36 +10,66 @@ ENDPOINT="/api/vl/write"
 VALUES="values.yml"
 NAMESPACE="alloy"
 
-echo "Starting download of kubectl ..."
-curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-echo "Successfully downloaded kubectl"
-echo "<=============================>"
-echo "Change permissions now"
-chmod +x kubectl
+# Step 1: Check if Minikube is installed, if not, install it
+if ! command -v minikube &> /dev/null
+then
+    echo "Minikube not found, installing..."
+    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+    sudo mv minikube-linux-amd64 /usr/local/bin/minikube
+    sudo chmod +x /usr/local/bin/minikube
+    echo "Minikube installed successfully."
+else
+    echo "Minikube is already installed."
+fi
 
-echo "Successfully changed permissions"
-echo "<=============================>"
-echo "Move the kubectl file to /usr/local/bin"
-sudo mv kubectl /usr/local/bin/
+# Step 2: Start Minikube (if not running already)
+echo "Starting Minikube..."
+minikube start --driver=virtualbox
 
-echo "Install Prerequisites for Helm (if not already installed)"
-sudo apt-get install apt-transport-https -y
+# Step 3: Install kubectl if not already installed
+if ! command -v kubectl &> /dev/null
+then
+    echo "Starting download of kubectl ..."
+    curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    echo "Successfully downloaded kubectl"
+    echo "<=============================>"
+    echo "Change permissions now"
+    chmod +x kubectl
 
-echo "Install Helm (Helm 3)"
-curl -O https://raw.githubusercontent.com/helm/helm/main/scripts.get-helm-3 | bash scripts.get-helm-3
+    echo "Successfully changed permissions"
+    echo "<=============================>"
+    echo "Move the kubectl file to /usr/local/bin"
+    sudo mv kubectl /usr/local/bin/
+else
+    echo "kubectl is already installed."
+fi
 
+# Step 4: Install Prerequisites for Helm (if not already installed)
+if ! command -v helm &> /dev/null
+then
+    echo "Install Helm (Helm 3)"
+    curl -O https://raw.githubusercontent.com/helm/helm/main/scripts.get-helm-3 | bash scripts.get-helm-3
+else
+    echo "Helm is already installed."
+fi
+
+# Step 5: Create Namespace in Kubernetes
 echo "Creating namespace alloy"
 sudo kubectl create namespace $NAMESPACE || echo "Namespace $NAMESPACE already exists"
 
-echo "Adding the Grafana Helm chart repository to your Helm configuration"
+# Step 6: Add the Grafana Helm chart repository to your Helm configuration
+echo "Adding the Grafana Helm chart repository"
 sudo helm repo add grafana https://grafana.github.io/helm-charts
 
+# Step 7: Update Helm repository
 echo "Updating Helm repository"
 sudo helm repo update
 
+# Step 8: Fetch the default values.yml from Grafana Helm chart
 echo "Fetching the default values.yml from Grafana Helm chart"
 helm show values grafana/k8s-monitoring > $VALUES
 
+# Step 9: Modify the values.yml file
 echo "Modifying values.yml"
 sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
 IP=$(echo "$IP" | sed 's/\//\\\//g')
@@ -60,9 +90,11 @@ sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/opencost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
-echo "After making the required changes to values.yml"
+# Step 10: Install Grafana Helm chart using modified values.yml
+echo "Installing Grafana using Helm"
 sudo helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
 
+# Step 11: Verifying the pods in the alloy namespace
 echo "Verifying the pods in the alloy namespace"
 sudo kubectl get pods -n $NAMESPACE
 
