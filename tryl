@@ -1,12 +1,82 @@
-kubectl create secret generic prometheus-k8s-monitoring \
---from-literal=username='admin' \
---from-literal=password='admin' \
---from-literal=host='http://10.0.34.144:9090' \
--n alloy --dry-run=client -o yaml | kubectl apply -f -
+#!/bin/bash
 
+# Configuration Variables
+OMEGA="omega"
+PROMETHEUS_URL="http://10.0.34.144:9090"
+LOKI_HOST="http://10.0.34.147:3100"
+TEMPO_HOST="http://10.0.34.193:3200"
+VALUES="values.yml"
+NAMESPACE="alloy"
+GRAFANA_EXTERNAL_PORT=3000
 
+# Step 1: Install kubectl
+echo "Downloading the latest stable release of kubectl..."
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
 
+# Step 2: Install Helm
+echo "Installing Helm..."
+curl -s https://get.helm.sh/helm-v3.9.0-linux-amd64.tar.gz | tar xz
+sudo mv linux-amd64/helm /usr/local/bin/helm
+
+# Step 3: Create Kubernetes Namespace for Alloy
+echo "Creating Kubernetes namespace 'alloy'..."
+kubectl create namespace $NAMESPACE || echo "Namespace $NAMESPACE already exists."
+
+# Step 4: Add Grafana Helm Chart Repository
+echo "Adding Grafana Helm chart repository..."
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+
+# Step 5: Modify the values.yml File
+echo "Fetching default values file from Grafana Helm chart..."
+helm show values grafana/k8s-monitoring > $VALUES
+
+echo "Modifying values.yml with custom configurations..."
+# Update configurations in the values.yml file
+sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
+sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$PROMETHEUS_URL\"/" "$VALUES"
+sed -i "/loki:/,/^ *host:/s|host: \"\"|host: \"$LOKI_HOST\"|" "$VALUES"
+sed -i "/tempo:/,/^ *host:/s|host: \"\"|host: \"$TEMPO_HOST\"|" "$VALUES"
+
+# Enable necessary features
+sed -i "/traces:/,/^ *enabled:/s/false/true/" "$VALUES"
+sed -i "/kepler:/,/^ *enabled:/s/false/true/" "$VALUES"
+sed -i "/opencost:/,/^ *enabled:/s/false/true/" "$VALUES"
+
+# Add Prometheus URL, username, and password for Opencost
+sed -i "/opencost:/a\ \ prometheus:\n\ \ \ \ url: \"$PROMETHEUS_URL\"\n\ \ \ \ username: \"admin\"\n\ \ \ \ password: \"admin\"" "$VALUES"
+
+echo "Finished modifying values.yml."
+
+# Step 6: Install Grafana Alloy Monitoring Stack using Helm
+echo "Installing Grafana Alloy stack in the 'alloy' namespace..."
+helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
+
+# Step 7: Verify Pods Are Running
+echo "Verifying that all necessary pods are running..."
+kubectl get pods -n $NAMESPACE
+
+# Step 8: Expose Grafana Service
+echo "Exposing Grafana service externally..."
 kubectl expose deployment grafana-k8s-monitoring-alloy \
   --type=NodePort \
-  --name=grafana-nodeport-service \
-  --port=3000 --target-port=12345 -n alloy
+  --name=grafana-external \
+  --port=$GRAFANA_EXTERNAL_PORT --target-port=12345 -n $NAMESPACE
+
+echo "Fetching NodePort for Grafana..."
+NODE_PORT=$(kubectl get svc grafana-external -n $NAMESPACE -o=jsonpath='{.spec.ports[0].nodePort}')
+
+echo "Fetching Node IP..."
+NODE_IP=$(kubectl get nodes -o=jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+
+echo "Grafana is available at: http://$NODE_IP:$NODE_PORT"
+
+# Step 9: Instructions for Access
+echo "Access Grafana at http://$NODE_IP:$NODE_PORT"
+echo "Default credentials: admin/admin"
+echo "Ensure to update these credentials after logging in."
+
+# End of Script
+echo "Setup complete. Verify Grafana and Opencost dashboards."
