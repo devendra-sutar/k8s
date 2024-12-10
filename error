@@ -10,39 +10,63 @@ ENDPOINT="/api/vl/write"
 VALUES="values.yml"
 NAMESPACE="alloy"
 
-# Function to log messages
-log() {
-    echo "$(date +'%Y-%m-%d %H:%M:%S') - $1"
-}
+# Check if kubectl is installed
+if ! command -v kubectl &> /dev/null
+then
+    echo "kubectl could not be found. Installing..."
+    curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    chmod +x kubectl
+    sudo mv kubectl /usr/local/bin/
+    echo "kubectl installed successfully"
+else
+    echo "kubectl is already installed"
+fi
 
-# Step 1: Install kubectl
-log "Starting download of kubectl ..."
-curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-chmod +x kubectl
-sudo mv kubectl /usr/local/bin/
-log "Successfully installed kubectl"
+# Check if Helm is installed
+if ! command -v helm &> /dev/null
+then
+    echo "Helm could not be found. Installing..."
+    sudo apt-get install apt-transport-https -y
+    curl -fsSL https://get.helm.sh/helm-v3.9.0-linux-amd64.tar.gz | tar -zxvf - --strip-components=1 linux-amd64/helm
+    sudo mv helm /usr/local/bin/
+    echo "Helm installed successfully"
+else
+    echo "Helm is already installed"
+fi
 
-# Step 2: Install Helm (Helm 3)
-log "Installing Helm (v3) ..."
-sudo apt-get install apt-transport-https -y
-curl -O https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-log "Successfully installed Helm"
+# Start Minikube if using it
+echo "Starting Minikube..."
+minikube start
 
-# Step 3: Create Kubernetes namespace 'alloy' for monitoring
-log "Creating namespace 'alloy' ..."
-kubectl create namespace $NAMESPACE || log "Namespace '$NAMESPACE' already exists"
+# Set kubectl context to Minikube (If using Minikube, otherwise skip)
+echo "Setting kubectl context to minikube..."
+kubectl config use-context minikube
 
-# Step 4: Add the official Grafana Helm chart repository
-log "Adding Grafana Helm chart repository ..."
+# Check Kubernetes Cluster Connectivity
+echo "Checking Kubernetes cluster connection..."
+kubectl cluster-info
+if [ $? -ne 0 ]; then
+    echo "Kubernetes cluster is unreachable. Ensure the cluster is up and kubectl is configured correctly."
+    exit 1
+else
+    echo "Kubernetes cluster is reachable."
+fi
+
+# Creating namespace "alloy" if it doesn't exist
+echo "Creating namespace alloy..."
+kubectl create namespace $NAMESPACE || echo "Namespace alloy already exists."
+
+# Add Grafana Helm chart repository
+echo "Adding Grafana Helm chart repository..."
 helm repo add grafana https://grafana.github.io/helm-charts
 helm repo update
 
-# Step 5: Fetch the default values.yml file from the Grafana Helm chart
-log "Fetching the default values.yml from Grafana Helm chart ..."
+# Fetch the default values.yml from Grafana Helm chart
+echo "Fetching default values.yml from Grafana Helm chart..."
 helm show values grafana/k8s-monitoring > $VALUES
 
-# Step 6: Modify values.yml file for custom configurations
-log "Modifying values.yml ..."
+# Modify values.yml with your configurations
+echo "Modifying values.yml with custom configurations..."
 sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
 IP=$(echo "$IP" | sed 's/\//\\\//g')
 sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
@@ -51,7 +75,8 @@ sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VAL
 sed -i "/queryEndpoint:/,/^ writeEndpoint:/s|writeEndpoint: .|writeEndpoint: $ENDPOINT|" "$VALUES"
 sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
-# Uncomment additional services to enable
+# Enable additional services in values.yml
+echo "Enabling additional services in values.yml..."
 sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/cluster_events:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
@@ -60,12 +85,21 @@ sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/opencost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
-# Step 7: Install Grafana monitoring stack with modified values.yml
-log "Installing Grafana monitoring stack using Helm ..."
+# Install Grafana Monitoring Stack using Helm
+echo "Installing Grafana Monitoring Stack using Helm..."
 helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
 
-# Step 8: Verify the pods are running in the alloy namespace
-log "Verifying Grafana monitoring stack pods in the '$NAMESPACE' namespace ..."
+# Verify if the Grafana pods are running
+echo "Verifying Grafana pods in the alloy namespace..."
 kubectl get pods -n $NAMESPACE
 
-log "Grafana monitoring stack installation completed!"
+# Provide Grafana access details
+echo "Access Grafana at http://<grafana-server-ip>:3000. Default credentials: admin/admin."
+
+# Import Kubernetes Dashboards
+echo "Setting up Kubernetes dashboards in Grafana..."
+# Note: Manual steps required to import dashboards into Grafana UI:
+# Go to the Dashboards section, import the Kubernetes dashboards, and link them to the appropriate data sources (Prometheus, Loki, Tempo).
+
+# Final message
+echo "Script completed successfully!"
