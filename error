@@ -10,78 +10,52 @@ ENDPOINT="/api/vl/write"
 VALUES="values.yml"
 NAMESPACE="alloy"
 
-# Step 1: Check if Minikube is installed, if not, install it
-if ! command -v minikube &> /dev/null
-then
-    echo "Minikube not found, installing..."
-    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-    sudo mv minikube-linux-amd64 /usr/local/bin/minikube
-    sudo chmod +x /usr/local/bin/minikube
-    echo "Minikube installed successfully."
-else
-    echo "Minikube is already installed."
-fi
+# Check if kubectl and helm are installed
+echo "Checking if kubectl and helm are installed..."
+command -v kubectl &>/dev/null || { echo "kubectl not found, installing..."; sudo apt-get install -y kubectl; }
+command -v helm &>/dev/null || { echo "helm not found, installing..."; sudo apt-get install -y apt-transport-https && curl -fsSL https://get.helm.sh/helm-v3.8.2-linux-amd64.tar.gz | tar -xz && sudo mv linux-amd64/helm /usr/local/bin/helm; }
 
-# Step 2: Start Minikube (if not running already)
-echo "Starting Minikube..."
-minikube start --driver=virtualbox
+# Download and Install kubectl if not installed
+echo "Starting download of kubectl..."
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+echo "Making kubectl binary executable..."
+chmod +x kubectl
+echo "Moving kubectl to /usr/local/bin..."
+sudo mv kubectl /usr/local/bin/
 
-# Step 3: Install kubectl if not already installed
-if ! command -v kubectl &> /dev/null
-then
-    echo "Starting download of kubectl ..."
-    curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    echo "Successfully downloaded kubectl"
-    echo "<=============================>"
-    echo "Change permissions now"
-    chmod +x kubectl
+# Install Helm
+echo "Install Prerequisites for Helm (if not already installed)"
+sudo apt-get install apt-transport-https -y
 
-    echo "Successfully changed permissions"
-    echo "<=============================>"
-    echo "Move the kubectl file to /usr/local/bin"
-    sudo mv kubectl /usr/local/bin/
-else
-    echo "kubectl is already installed."
-fi
+# Install Helm (Helm 3)
+echo "Install Helm (Helm 3)"
+curl -O https://raw.githubusercontent.com/helm/helm/main/scripts.get-helm-3 | bash scripts.get-helm-3
 
-# Step 4: Install Prerequisites for Helm (if not already installed)
-if ! command -v helm &> /dev/null
-then
-    echo "Install Helm (Helm 3)"
-    curl -O https://raw.githubusercontent.com/helm/helm/main/scripts.get-helm-3 | bash scripts.get-helm-3
-else
-    echo "Helm is already installed."
-fi
-
-# Step 5: Create Namespace in Kubernetes
+# Create a Namespace for Monitoring
 echo "Creating namespace alloy"
-sudo kubectl create namespace $NAMESPACE || echo "Namespace $NAMESPACE already exists"
+kubectl create namespace $NAMESPACE || echo "Namespace $NAMESPACE already exists"
 
-# Step 6: Add the Grafana Helm chart repository to your Helm configuration
-echo "Adding the Grafana Helm chart repository"
-sudo helm repo add grafana https://grafana.github.io/helm-charts
+# Add Grafana Helm Repository and Update
+echo "Adding Grafana Helm chart repository..."
+helm repo add grafana https://grafana.github.io/helm-charts
+echo "Updating Helm repository..."
+helm repo update
 
-# Step 7: Update Helm repository
-echo "Updating Helm repository"
-sudo helm repo update
-
-# Step 8: Fetch the default values.yml from Grafana Helm chart
-echo "Fetching the default values.yml from Grafana Helm chart"
+# Fetch and Modify values.yml
+echo "Fetching the default values.yml from Grafana Helm chart..."
 helm show values grafana/k8s-monitoring > $VALUES
 
-# Step 9: Modify the values.yml file
-echo "Modifying values.yml"
+# Modify values.yml file for cluster and endpoints
+echo "Modifying values.yml..."
 sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
 IP=$(echo "$IP" | sed 's/\//\\\//g')
 sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
-
 sed -i -e "/^\s*loki:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$LOKI_HOST\"|" "$VALUES"
 sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VALUES"
-
 sed -i "/queryEndpoint:/,/^ writeEndpoint:/s|writeEndpoint: .|writeEndpoint: $ENDPOINT|" "$VALUES"
 sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
-# Uncommenting additional services
+# Uncomment additional services to enable
 sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/cluster_events:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
@@ -90,12 +64,33 @@ sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 sed -i "/opencost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
-# Step 10: Install Grafana Helm chart using modified values.yml
-echo "Installing Grafana using Helm"
-sudo helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
+# Install the Helm Chart with Modified Configuration
+echo "Installing Grafana Monitoring Stack..."
+helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
 
-# Step 11: Verifying the pods in the alloy namespace
-echo "Verifying the pods in the alloy namespace"
-sudo kubectl get pods -n $NAMESPACE
+# Verify that all necessary pods are running
+echo "Verifying pods in the alloy namespace..."
+kubectl get pods -n $NAMESPACE
 
+# Login to Grafana (in case it's set up)
+GRAFANA_URL="http://<grafana-server-ip>:3000"
+echo "Access Grafana at $GRAFANA_URL. Default credentials: admin/admin"
+
+# Visualization Setup in Grafana
+echo "Setting up Kubernetes Dashboards in Grafana..."
+
+# Import prebuilt Kubernetes Dashboards into monitoring stack
+# You can download dashboards from Grafana's website or manually import them using Grafana API or UI
+echo "Importing Kubernetes Dashboards into Grafana..."
+
+# Example to login and import dashboards if using API (authentication might be required)
+# curl -X POST -H "Authorization: Bearer <api-key>" -H "Content-Type: application/json" \
+# -d '{"dashboard": <dashboard JSON>}' \
+# "$GRAFANA_URL/api/dashboards/db"
+
+# Tip: Once inside Grafana, go to Dashboards > Import, and choose your imported Kubernetes dashboards.
+
+# Monitoring Cluster Overview
+echo "Once dashboards are imported, go to Grafana's Dashboard to monitor Kubernetes Cluster health."
+echo "Monitor Cluster Overview, Node Details, Workloads, Namespaces, etc."
 echo "Script completed!"
