@@ -1,97 +1,106 @@
 #!/bin/bash
-
-# Configuration Variables
 OMEGA="omega"
-PROMETHEUS_URL="http://10.0.34.144:9090"
-LOKI_URL="http://10.0.34.147:3100"
-TEMPO_URL="http://10.0.34.193:3200"
+IP="http://10.0.34.144:9090"
+LOKI_HOST="http://10.0.34.147:3100"
+TEMPO_HOST="http://10.0.34.193:3200"
+
+TRUE="true"
+ENDPOINT="/api/vl/write"
 VALUES="values.yml"
 NAMESPACE="alloy"
 
-# 1. Install kubectl if not installed
-echo "Checking if kubectl is installed..."
-if ! command -v kubectl &> /dev/null
-then
-    echo "kubectl not found, installing..."
-    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    chmod +x kubectl
-    sudo mv kubectl /usr/local/bin/
-    echo "kubectl installed successfully"
-else
-    echo "kubectl is already installed"
-fi
+echo "Starting download of kubectl ..." 
+curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+echo "Successfully downloaded kubectl"
+echo "<=============================>"
+echo "change this premisson now "
+chmod +x kubectl
 
-# 2. Install Helm if not installed
-echo "Checking if Helm is installed..."
-if ! command -v helm &> /dev/null
-then
-    echo "Helm not found, installing..."
-    sudo apt-get install apt-transport-https -y
-    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-    echo "Helm installed successfully"
-else
-    echo "Helm is already installed"
-fi
+echo "seccessfully change this permisson"
+echo "<=============================>"
+echo "move this kubectl file for /usr/local/bin"
+sudo mv kubectl /usr/local/bin/
 
-# 3. Ensure kubectl is configured
-echo "Checking kubectl configuration..."
-kubectl version --client || { echo "kubectl is not configured correctly."; exit 1; }
+echo "install Prerequisites for Helm (if not already installed):)"
+sudo apt-get install apt-transport-https -y
 
-# 4. Create a namespace for monitoring (alloy)
-echo "Creating namespace alloy..."
-kubectl create namespace $NAMESPACE || echo "Namespace alloy already exists"
+echo "Install Helm (Helm 3)"
+curl -O https://raw.githubusercontent.com/helm/helm/main/scripts.get-helm-3 | bash scripts.get-helm-3
 
-# 5. Add Grafana Helm repository and update
-echo "Adding Grafana Helm chart repository..."
-helm repo add grafana https://grafana.github.io/helm-charts
-helm repo update
+echo "namespace create now alloy"
+sudo kubectl create namespace $NAMESPACE || echo "Namespace $NAMESPACE already exists"
 
-# 6. Fetch default values.yml from Grafana Helm chart
-echo "Fetching default values.yml from Grafana Helm chart..."
+echo "add the Grafana Helm chart repository to your Helm configuration"
+sudo helm repo add grafana https://grafana.github.io/helm-charts
+
+echo "repo update now "
+sudo helm repo update
+
+echo "after adding the Helm chart, scrape the default values.yml"
 helm show values grafana/k8s-monitoring > $VALUES
 
-# 7. Modify values.yml to update Prometheus, Loki, Tempo, OpenCost, and other settings
-echo "Modifying values.yml for custom configurations..."
+echo "add this line "
+sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
+IP=$(echo "$IP" | sed 's/\//\\\//g')
+sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
 
-# Update Prometheus, Loki, Tempo, and OpenCost URLs
-sed -i "s|queryEndpoint: \"\"|queryEndpoint: \"$PROMETHEUS_URL/api/v1/query\"|" "$VALUES"
-sed -i "s|scrapeInterval: \"\"|scrapeInterval: \"15s\"|" "$VALUES"
-sed -i "s/false/true/" "$VALUES"
+sed -i -e "/^\s*loki:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$LOKI_HOST\"|" "$VALUES"
+sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VALUES"
 
-sed -i "s|host: \"\"|host: \"$LOKI_URL\"|" "$VALUES"
-sed -i "s|host: \"\"|host: \"$TEMPO_URL\"|" "$VALUES"
+sed -i "/queryEndpoint:/,/^ writeEndpoint:/s|writeEndpoint: .|writeEndpoint: $ENDPOINT|" "$VALUES"
+sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
-# Enable OpenCost and configure Prometheus
-sed -i "s/false/true/" "$VALUES"
-sed -i "s|url: \"\"|url: \"$PROMETHEUS_URL\"|" "$VALUES"
+#sed -i "/cost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/cluster_events:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/kube-state-metrics:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/opencost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
-# Ensure only one of the Prometheus setups is enabled
-sed -i "/opencost:/,/prometheus:/s/# in:/# in:\n#   scrapeInterval: \"15s\"\n#   scrapeTimeout: \"10s\"/" "$VALUES"
-sed -i "/opencost:/,/prometheus:/s/# amp:/# amp:\n#   apiUrl: \"http:\/\/prometheus-service.monitoring.svc.cluster.local:9090\"/" "$VALUES"
 
-# Enable additional components in values.yml
-sed -i "s/false/true/" "$VALUES"
 
-# 8. Install Grafana Monitoring Stack using Helm
-echo "Installing Grafana Monitoring Stack using Helm..."
-helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
-if [ $? -ne 0 ]; then
-    echo "Error: Grafana installation failed. Please check the values.yml file for issues."
-    exit 1
+echo "After making the required changes to values.yml"
+sudo helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
+
+# Variables
+ALLOY_CONFIG_URL="http://10.0.34.144/config.alloy"
+API_ENDPOINT="https://10.0.34.181:8000/api/vl/agents/"
+HOST_IP=$(hostname -I | awk '{print $1}')
+OMEGA_UID="310b297d-29c9-4407-9506-e7bc5e7fbf46"
+AGENT_NAME="Linux"
+HOSTNAME="10.0.35.131"
+HOST_IP="10.0.35.131"
+ALLOY_PORT=8080
+
+# Function to log messages
+log() {
+    echo "$(date +'%Y-%m-%d %H:%M:%S') - $1"
+}
+
+# Create new agent
+log "Creating new agent..."
+response=$(curl -k -s -w "\n%{http_code}" -X POST "$API_ENDPOINT" \
+    -H "Content-type: application/json" \
+    -d '{
+        "host_name": "'$HOSTNAME'",
+        "ip_port": "'$HOST_IP:$ALLOY_PORT'",
+        "keycloak_id": "'"$OMEGA_UID"'",
+        "agent_name": "'"$AGENT_NAME"'",
+        "status": "Active"
+    }')
+
+# Split the response and HTTP code
+http_code=$(echo "$response" | tail -n1)
+response_body=$(echo "$response" | sed '$d')
+
+# Check the HTTP response code
+if [ "$http_code" -eq 200 ]; then
+    log "Agent created successfully: $response_body"
+else
+    log "Failed to create agent. HTTP code: $http_code. Response: $response_body"
 fi
 
-# 9. Verify if Grafana pods are running in the alloy namespace
-echo "Verifying Grafana pods in the alloy namespace..."
-kubectl get pods -n $NAMESPACE
-
-# 10. Provide access instructions for Grafana
-echo "Access Grafana at http://<grafana-server-ip>:3000. Default credentials: admin/admin."
-
-# 11. Set up Kubernetes Dashboards in Grafana
-echo "Setting up Kubernetes dashboards in Grafana..."
-# These dashboards should be manually imported in Grafana
-# Instructions: Navigate to Dashboards > Import > Select prebuilt Kubernetes dashboards
-echo "Import prebuilt Kubernetes dashboards and link to the correct data sources (Prometheus, Loki, Tempo)."
-
-# Final message
-echo "Script completed successfully!"
+echo "create a alloy"
+sudo kubectl get pods -n $NAMESPACE
