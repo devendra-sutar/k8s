@@ -1,94 +1,66 @@
 #!/bin/bash
-
-# Configuration Variables
 OMEGA="omega"
-PROMETHEUS_IP="http://10.0.34.144:9090"
+IP="http://10.0.34.144:9090"
 LOKI_HOST="http://10.0.34.147:3100"
 TEMPO_HOST="http://10.0.34.193:3200"
+
+TRUE="true"
+ENDPOINT="/api/vl/write"
 VALUES="values.yml"
 NAMESPACE="alloy"
 
-# Step 1: Install kubectl
-echo "Downloading the latest stable release of kubectl..."
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+echo "Starting download of kubectl ..." 
+curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+echo "Successfully downloaded kubectl"
+echo "<=============================>"
+echo "change this permission now "
 chmod +x kubectl
+
+echo "successfully changed this permission"
+echo "<=============================>"
+echo "move this kubectl file for /usr/local/bin"
 sudo mv kubectl /usr/local/bin/
-echo "kubectl installed successfully."
 
-# Step 2: Install Helm
-echo "Installing Helm..."
-curl -s https://get.helm.sh/helm-v3.9.0-linux-amd64.tar.gz | tar xz
-sudo mv linux-amd64/helm /usr/local/bin/helm
-echo "Helm installed successfully."
+echo "install Prerequisites for Helm (if not already installed):)"
+sudo apt-get install apt-transport-https -y
 
-# Step 3: Create Kubernetes Namespace
-echo "Creating namespace '$NAMESPACE'..."
-kubectl create namespace $NAMESPACE || echo "Namespace '$NAMESPACE' already exists."
+echo "Install Helm (Helm 3)"
+curl -O https://raw.githubusercontent.com/helm/helm/main/scripts.get-helm-3 | bash scripts.get-helm-3
 
-# Step 4: Add Grafana Helm Chart
-echo "Adding Grafana Helm repository..."
-helm repo add grafana https://grafana.github.io/helm-charts
-helm repo update
+echo "namespace create now alloy"
+sudo kubectl create namespace $NAMESPACE || echo "Namespace $NAMESPACE already exists"
 
-# Step 5: Fetch and Modify values.yml
-echo "Fetching default values.yml file..."
+echo "add the Grafana Helm chart repository to your Helm configuration"
+sudo helm repo add grafana https://grafana.github.io/helm-charts
+
+echo "repo update now "
+sudo helm repo update
+
+echo "after adding the Helm chart, scrape the default values.yml"
 helm show values grafana/k8s-monitoring > $VALUES
 
-echo "Modifying values.yml..."
-# Set cluster name and Prometheus, Loki, Tempo configuration
+echo "add this line "
 sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
-PROMETHEUS_IP_ESCAPED=$(echo "$PROMETHEUS_IP" | sed 's/\//\\\//g')
-sed -i "/prometheus:/,/^ *host:/s|host: \"\"|host: \"$PROMETHEUS_IP_ESCAPED\"|" "$VALUES"
+IP=$(echo "$IP" | sed 's/\//\\\//g')
+sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
+
 sed -i -e "/^\s*loki:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$LOKI_HOST\"|" "$VALUES"
 sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VALUES"
 
-# Enable all necessary features
-sed -i "/traces:/,/^ *enabled: false/s/false/true/" "$VALUES"
-sed -i "/kepler:/,/^ *enabled: false/s/false/true/" "$VALUES"
-sed -i "/opencost:/,/^ *enabled: false/s/false/true/" "$VALUES"
-sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/true/" "$VALUES"
-sed -i "/kube-state-metrics:/,/^ *enabled: false/s/false/true/" "$VALUES"
+sed -i "/queryEndpoint:/,/^ writeEndpoint:/s|writeEndpoint: .|writeEndpoint: $ENDPOINT|" "$VALUES"
+sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
-# Add OpenCost Prometheus credentials
-cat <<EOF >> $VALUES
-opencost:
-  enabled: true
-  prometheus:
-    url: "$PROMETHEUS_IP"
-    username: "admin"
-    password: "admin"
-EOF
+sed -i "/cost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/cluster_events:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/kube-state-metrics:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/opencost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
 
-echo "values.yml modifications completed."
+echo "After making the required changes to values.yml"
+sudo helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
 
-# Step 6: Install Grafana Monitoring Stack
-echo "Installing Grafana Monitoring Stack..."
-helm install grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES -n $NAMESPACE
-
-# Step 7: Verify Pods
-echo "Verifying that all necessary pods are running..."
-kubectl get pods -n $NAMESPACE
-
-# Step 8: Expose Grafana Service
-echo "Exposing Grafana service..."
-GRAFANA_DEPLOYMENT=$(kubectl get deployments -n $NAMESPACE | grep grafana | awk '{print $1}')
-
-if [ -n "$GRAFANA_DEPLOYMENT" ]; then
-  kubectl expose deployment $GRAFANA_DEPLOYMENT \
-    --type=NodePort \
-    --name=grafana-external \
-    --port=3000 --target-port=3000 -n $NAMESPACE
-
-  echo "Fetching NodePort for Grafana..."
-  NODE_PORT=$(kubectl get svc grafana-external -n $NAMESPACE -o=jsonpath='{.spec.ports[0].nodePort}')
-
-  echo "Fetching Node IP..."
-  NODE_IP=$(kubectl get nodes -o=jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-
-  echo "Grafana UI is available at: http://$NODE_IP:$NODE_PORT"
-else
-  echo "Grafana deployment not found. Please check the Helm installation or deployment status."
-fi
-
-# End of Script
-echo "Grafana Monitoring Setup Completed!"
+echo "Verifying Grafana pods and services in the namespace..."
+sudo kubectl get pods -n $NAMESPACE
