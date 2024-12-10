@@ -1,0 +1,86 @@
+#!/bin/bash
+
+OMEGA="omega"
+IP="http://10.0.34.144:9090"
+LOKI_HOST="http://10.0.34.147:3100"
+TEMPO_HOST="http://10.0.34.193:3200"
+
+TRUE="true"
+ENDPOINT="/api/vl/write"
+VALUES="values.yml"
+NAMESPACE="alloy"
+
+echo "Starting download of kubectl ..." 
+curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+echo "Successfully downloaded kubectl"
+echo "<=============================>"
+echo "change this permission now"
+chmod +x kubectl
+
+echo "Successfully changed permissions"
+echo "<=============================>"
+echo "Move this kubectl file to /usr/local/bin"
+sudo mv kubectl /usr/local/bin/
+
+echo "Installing prerequisites for Helm..."
+sudo apt-get install apt-transport-https -y
+
+echo "Installing Helm (Helm 3)..."
+curl -O https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash scripts/get-helm-3
+
+echo "Creating namespace: $NAMESPACE"
+sudo kubectl create namespace $NAMESPACE || echo "Namespace $NAMESPACE already exists"
+
+echo "Adding the Grafana Helm chart repository to your Helm configuration..."
+sudo helm repo add grafana https://grafana.github.io/helm-charts
+
+echo "Updating Helm repository..."
+sudo helm repo update
+
+echo "Fetching default values.yml..."
+helm show values grafana/k8s-monitoring > $VALUES
+
+echo "Modifying values.yml..."
+./modify-values.sh $OMEGA $IP $LOKI_HOST $TEMPO_HOST $TRUE $ENDPOINT $VALUES
+
+echo "Installing Grafana K8s Monitoring Helm chart..."
+sudo helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
+
+# Variables for agent creation
+API_ENDPOINT="https://10.0.34.181:8000/api/vl/agents/"
+HOST_IP=$(hostname -I | awk '{print $1}')
+OMEGA_UID="310b297d-29c9-4407-9506-e7bc5e7fbf46"
+AGENT_NAME="Linux"
+HOSTNAME="10.0.35.131"
+HOST_IP="10.0.35.131"
+ALLOY_PORT=8080
+
+# Function to log messages
+log() {
+    echo "$(date +'%Y-%m-%d %H:%M:%S') - $1"
+}
+
+# Create new agent
+log "Creating new agent..."
+response=$(curl -k -s -w "\n%{http_code}" -X POST "$API_ENDPOINT" \
+    -H "Content-type: application/json" \
+    -d '{
+        "host_name": "'$HOSTNAME'",
+        "ip_port": "'$HOST_IP:$ALLOY_PORT'",
+        "keycloak_id": "'"$OMEGA_UID"'",
+        "agent_name": "'"$AGENT_NAME"'",
+        "status": "Active"
+    }')
+
+# Split the response and HTTP code
+http_code=$(echo "$response" | tail -n1)
+response_body=$(echo "$response" | sed '$d')
+
+if [ "$http_code" -eq 200 ]; then
+    log "Agent created successfully: $response_body"
+else
+    log "Failed to create agent. HTTP code: $http_code. Response: $response_body"
+fi
+
+echo "Checking pods in namespace $NAMESPACE..."
+sudo kubectl get pods -n $NAMESPACE
