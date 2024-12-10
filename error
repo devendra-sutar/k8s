@@ -2,7 +2,7 @@
 
 # Configuration Variables
 OMEGA="omega"
-IP="http://10.0.34.144:9090"
+PROMETHEUS_IP="http://10.0.34.144:9090"  # Correct Prometheus IP
 LOKI_HOST="http://10.0.34.147:3100"
 TEMPO_HOST="http://10.0.34.193:3200"
 VALUES="values.yml"
@@ -49,8 +49,8 @@ helm show values grafana/k8s-monitoring > $VALUES
 echo "Modifying values.yml with custom configurations..."
 # Update cluster name
 sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
-IP=$(echo "$IP" | sed 's/\//\\\//g')
-sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
+PROMETHEUS_IP=$(echo "$PROMETHEUS_IP" | sed 's/\//\\\//g')
+sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$PROMETHEUS_IP\"/" "$VALUES"
 
 # Update Loki and Tempo endpoints
 sed -i -e "/^\s*loki:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$LOKI_HOST\"|" "$VALUES"
@@ -73,7 +73,7 @@ cat <<EOF >> $VALUES
 opencost:
   enabled: true
   prometheus:
-    url: http://prometheus-server:9090
+    url: $PROMETHEUS_IP
     username: admin
     password: admin
 EOF
