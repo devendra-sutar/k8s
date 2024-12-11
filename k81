@@ -119,15 +119,18 @@ sed -i '/prometheus-node-exporter:/,/^ *enabled:/s/enabled: false/enabled: true/
 # Enable prometheus-operator-crds
 sed -i '/prometheus-operator-crds:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
 
-# Step 13: Install Helm chart with the modified values.yml file
+# Step 13: Add Grafana username and password to values.yml
+echo "Adding Grafana username and password to values.yml..."
+cat <<EOL >> values.yml
+grafana:
+  admin:
+    username: admin
+    password: admin
+EOL
+
+# Step 14: Install Helm chart with the modified values.yml file
 echo "Installing Helm chart with the modified values.yml..."
 sudo helm install -n alloy grafana-k8s-monitoring grafana/k8s-monitoring -f values.yml
-
-# Step 14: Create a Kubernetes secret with username and password (both set to 'admin')
-echo "Creating Kubernetes secret with username and password 'admin'..."
-kubectl create secret generic grafana-admin-secret -n alloy \
-    --from-literal=username=admin \
-    --from-literal=password=admin
 
 # Step 15: Final verification
 echo "Final verification of kubectl and Helm versions..."
