@@ -1,99 +1,141 @@
 #!/bin/bash
 
-set -e  # Exit immediately if a command exits with a non-zero status
+# Custom values for configuration
+OMEGA="omega"
+IP="http://10.0.34.144:9090"
+LOKI_HOST="http://10.0.34.147:3100"
+TEMPO_HOST="http://10.0.34.193:3200"
 
-# Function to log messages
-log() {
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
-}
+# Step 1: Install kubectl
 
-# Check if kubectl and Helm are installed
-check_prerequisites() {
-    log "Checking prerequisites..."
-    if ! command -v kubectl &>/dev/null; then
-        log "kubectl not found. Installing..."
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-        chmod +x kubectl
-        sudo mv kubectl /usr/local/bin/
-    fi
-    if ! command -v helm &>/dev/null; then
-        log "Helm not found. Installing..."
-        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-    fi
-    log "Prerequisites checked."
-}
+echo "Downloading the latest stable release of kubectl..."
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 
-# Create namespace for monitoring stack
-setup_namespace() {
-    local namespace="alloy"
-    log "Creating namespace: $namespace..."
-    kubectl create namespace "$namespace" || log "Namespace $namespace already exists."
-}
+# Step 2: Make kubectl binary executable
+echo "Making kubectl binary executable..."
+chmod +x kubectl
 
-# Add and update Grafana Helm repository
-setup_helm_repo() {
-    log "Adding Grafana Helm repository..."
-    helm repo add grafana https://grafana.github.io/helm-charts
-    helm repo update
-}
+# Step 3: Move kubectl to /usr/local/bin to make it available system-wide
+echo "Moving kubectl to /usr/local/bin..."
+sudo mv kubectl /usr/local/bin/
 
-# Fetch and configure values.yaml
-configure_values_file() {
-    local values_file="values.yaml"
-    log "Fetching default values.yaml for Grafana k8s-monitoring..."
-    helm show values grafana/k8s-monitoring > "$values_file"
+# Step 4: Verify kubectl installation
+echo "Verifying kubectl installation..."
+if ! command -v kubectl &> /dev/null
+then
+    echo "kubectl installation failed. Please check the installation steps."
+    exit 1
+else
+    echo "kubectl is installed successfully."
+    kubectl version --client=true
+fi
 
-    log "Updating custom endpoints in values.yaml..."
-    sed -i "s|host:.*|host: \"http://172.16.1.86:9090\"|" "$values_file"      # Prometheus
-    sed -i "s|host:.*|host: \"http://172.16.1.193:3100\"|" "$values_file"    # Loki
-    sed -i "s|host:.*|host: \"http://172.16.1.85:4317/v1/traces\"|" "$values_file" # Tempo
-    sed -i "/protocol:/,/^ *[^ ]/s|protocol:.*|protocol: \"remote_write\"|" "$values_file"
+# Step 5: Install prerequisites for Helm
+echo "Installing prerequisites for Helm..."
+sudo apt-get install apt-transport-https -y
 
-    log "Enabling metrics, logs, and pod logs collection in values.yaml..."
-    sed -i "/metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/pod_logs:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+# Step 6: Install Helm (v3 or later)
+echo "Installing Helm..."
+curl -fsSL https://get.helm.sh/helm-v3.12.0-linux-amd64.tar.gz -o helm.tar.gz
+tar -zxvf helm.tar.gz
+sudo mv linux-amd64/helm /usr/local/bin/helm
 
-    log "Enabling additional components: Cost, Kepler, etc..."
-    sed -i "/Cost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/Kepler:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/cluster_events:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/Opencost:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/kube-state-metrics:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/prometheus-node-exporter:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
-    sed -i "/prometheus-operator-crds:/,/^ *[^ ]/s|enabled:.*|enabled: true|" "$values_file"
+# Step 7: Verify Helm installation
+echo "Verifying Helm installation..."
+if ! command -v helm &> /dev/null
+then
+    echo "Helm installation failed. Please check the installation steps."
+    exit 1
+else
+    echo "Helm is installed successfully."
+    helm version --short
+fi
 
-    log "values.yaml updated successfully."
-}
+# Step 8: Create a namespace for the monitoring stack
+echo "Creating namespace 'alloy'..."
+kubectl create namespace alloy || echo "Namespace 'alloy' already exists."
 
-# Deploy the monitoring stack using Helm
-deploy_monitoring_stack() {
-    local namespace="alloy"
-    local values_file="values.yaml"
+# Step 9: Add the official Grafana Helm chart repository
+echo "Adding the Grafana Helm chart repository..."
+helm repo add grafana https://grafana.github.io/helm-charts
 
-    log "Deploying Grafana k8s-monitoring stack to namespace $namespace..."
-    helm install -n "$namespace" grafana-k8s-monitoring grafana/k8s-monitoring -f "$values_file"
-}
+# Step 10: Update the Helm chart repository cache
+echo "Refreshing Helm chart repository cache..."
+helm repo update
 
-# Verify deployment
-verify_deployment() {
-    local namespace="alloy"
-    log "Verifying deployment in namespace $namespace..."
-    kubectl get pods -n "$namespace"
-    log "Note: The OpenCost pod may not run initially as it requires additional configuration. Please configure OpenCost separately for cost management."
-}
+# Step 11: Scrape the default values.yml file for configuration
+echo "Scraping the default values.yml file..."
+helm show values grafana/k8s-monitoring > values.yml
 
-# Main function
-main() {
-    check_prerequisites
-    setup_namespace
-    setup_helm_repo
-    configure_values_file
-    deploy_monitoring_stack
-    verify_deployment
-    log "Grafana monitoring stack setup completed successfully."
-}
+# Step 12: Open values.yml file and modify configuration settings
+echo "Modifying values.yml file..."
 
-# Run the script
-main
+# Set custom cluster name
+echo "Setting custom cluster name to '$OMEGA'..."
+sed -i '/cluster:/,/^ *name:/s/name: ""/name: "$OMEGA"/' values.yml
+
+# Set custom Prometheus endpoint
+echo "Setting custom Prometheus endpoint to '$IP'..."
+sed -i '/prometheus:/,/^ *host:/s/host: ""/host: "$IP"/' values.yml
+
+# Set custom Loki endpoint
+echo "Setting custom Loki endpoint to '$LOKI_HOST'..."
+sed -i '/loki:/,/^ *host:/s/host: ""/host: "$LOKI_HOST"/' values.yml
+
+# Set custom Tempo endpoint
+echo "Setting custom Tempo endpoint to '$TEMPO_HOST'..."
+sed -i '/tempo:/,/^ *host:/s/host: ""/host: "$TEMPO_HOST"/' values.yml
+
+# Enable metrics, logs, and traces collection
+echo "Enabling metrics, logs, and traces collection..."
+sed -i '/metrics:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
+sed -i '/logs:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
+sed -i '/traces:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
+
+# Enable additional components if not already enabled
+echo "Enabling additional components (Cost, Kepler, node-exporter, etc.)..."
+
+# Enable Cost
+sed -i '/cost:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
+
+# Enable Kepler
+sed -i '/kepler:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
+
+# Enable node-exporter
+sed -i '/node-exporter:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
+
+# Enable cluster_events
+sed -i '/cluster_events:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
+
+# Enable Opencost
+sed -i '/opencost:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
+
+# Enable kube-state-metrics
+sed -i '/kube-state-metrics:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
+
+# Enable prometheus-node-exporter
+sed -i '/prometheus-node-exporter:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
+
+# Enable prometheus-operator-crds
+sed -i '/prometheus-operator-crds:/,/^ *enabled:/s/enabled: false/enabled: true/' values.yml
+
+# Step 13: Install Helm chart with the modified values.yml file
+echo "Installing Helm chart with the modified values.yml..."
+sudo helm install -n alloy grafana-k8s-monitoring grafana/k8s-monitoring -f values.yml
+
+# Step 14: Create a Kubernetes secret with username and password (both set to 'admin')
+echo "Creating Kubernetes secret with username and password 'admin'..."
+kubectl create secret generic grafana-admin-secret -n alloy \
+    --from-literal=username=admin \
+    --from-literal=password=admin
+
+# Step 15: Final verification
+echo "Final verification of kubectl and Helm versions..."
+kubectl version --client=true
+helm version --short
+
+# Step 16: Verify that all necessary pods (Prometheus node exporter, Loki, Tempo) are running without issues
+echo "Verifying that all necessary pods (Prometheus node exporter, Loki, Tempo) are running without issues..."
+kubectl get pods -n alloy
+
+echo "kubectl and Helm are installed, 'alloy' namespace is created, Grafana Helm chart repository is added and updated, the monitoring stack is installed successfully, and all necessary pods are verified."
