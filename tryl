@@ -1,47 +1,106 @@
-./final.sh 
-Checking if kubectl and helm are installed...
-Starting download of kubectl...
-  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
-                                 Dload  Upload   Total   Spent    Left  Speed
-100   138  100   138    0     0    444      0 --:--:-- --:--:-- --:--:--   443
-100 53.7M  100 53.7M    0     0  41.4M      0  0:00:01  0:00:01 --:--:-- 68.6M
-Making kubectl binary executable...
-Moving kubectl to /usr/local/bin...
-Install Prerequisites for Helm (if not already installed)
-Reading package lists... Done
-Building dependency tree... Done
-Reading state information... Done
-Note, selecting 'apt' instead of 'apt-transport-https'
-apt is already the newest version (2.7.14build2).
-0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
-Install Helm (Helm 3)
-scripts.get-helm-3: line 1: 404:: command not found
-  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
-                                 Dload  Upload   Total   Spent    Left  Speed
-100    14  100    14    0     0     36      0 --:--:-- --:--:-- --:--:--    36
-Creating namespace alloy
-The connection to the server localhost:8080 was refused - did you specify the right host or port?
-Namespace alloy already exists
-Adding Grafana Helm chart repository...
-"grafana" already exists with the same configuration, skipping
-Updating Helm repository...
-Hang tight while we grab the latest from your chart repositories...
-...Successfully got an update from the "grafana" chart repository
-Update Complete. ⎈Happy Helming!⎈
-Fetching the default values.yml from Grafana Helm chart...
-Modifying values.yml...
-Installing Grafana Monitoring Stack...
-Error: INSTALLATION FAILED: Kubernetes cluster unreachable: Get "http://localhost:8080/version": dial tcp 127.0.0.1:8080: connect: connection refused
-Verifying pods in the alloy namespace...
-E1210 10:24:56.990475    2413 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"http://localhost:8080/api?timeout=32s\": dial tcp 127.0.0.1:8080: connect: connection refused"
-E1210 10:24:56.992202    2413 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"http://localhost:8080/api?timeout=32s\": dial tcp 127.0.0.1:8080: connect: connection refused"
-E1210 10:24:56.994112    2413 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"http://localhost:8080/api?timeout=32s\": dial tcp 127.0.0.1:8080: connect: connection refused"
-E1210 10:24:56.996085    2413 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"http://localhost:8080/api?timeout=32s\": dial tcp 127.0.0.1:8080: connect: connection refused"
-E1210 10:24:56.997667    2413 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"http://localhost:8080/api?timeout=32s\": dial tcp 127.0.0.1:8080: connect: connection refused"
-The connection to the server localhost:8080 was refused - did you specify the right host or port?
-Access Grafana at http://<grafana-server-ip>:3000. Default credentials: admin/admin
-Setting up Kubernetes Dashboards in Grafana...
-Importing Kubernetes Dashboards into Grafana...
-Once dashboards are imported, go to Grafana's Dashboard to monitor Kubernetes Cluster health.
-Monitor Cluster Overview, Node Details, Workloads, Namespaces, etc.
-Script completed!
+#!/bin/bash
+OMEGA="omega"
+IP="http://10.0.34.144:9090"
+LOKI_HOST="http://10.0.34.147:3100"
+TEMPO_HOST="http://10.0.34.193:3200"
+
+TRUE="true"
+ENDPOINT="/api/vl/write"
+VALUES="values.yml"
+NAMESPACE="alloy"
+
+echo "Starting download of kubectl ..." 
+curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+echo "Successfully downloaded kubectl"
+echo "<=============================>"
+echo "change this premisson now "
+chmod +x kubectl
+
+echo "seccessfully change this permisson"
+echo "<=============================>"
+echo "move this kubectl file for /usr/local/bin"
+sudo mv kubectl /usr/local/bin/
+
+echo "install Prerequisites for Helm (if not already installed):)"
+sudo apt-get install apt-transport-https -y
+
+echo "Install Helm (Helm 3)"
+curl -O https://raw.githubusercontent.com/helm/helm/main/scripts.get-helm-3 | bash scripts.get-helm-3
+
+echo "namespace create now alloy"
+sudo kubectl create namespace $NAMESPACE || echo "Namespace $NAMESPACE already exists"
+
+echo "add the Grafana Helm chart repository to your Helm configuration"
+sudo helm repo add grafana https://grafana.github.io/helm-charts
+
+echo "repo update now "
+sudo helm repo update
+
+echo "after adding the Helm chart, scrape the default values.yml"
+helm show values grafana/k8s-monitoring > $VALUES
+
+echo "add this line "
+sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
+IP=$(echo "$IP" | sed 's/\//\\\//g')
+sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
+
+sed -i -e "/^\s*loki:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$LOKI_HOST\"|" "$VALUES"
+sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VALUES"
+
+sed -i "/queryEndpoint:/,/^ writeEndpoint:/s|writeEndpoint: .|writeEndpoint: $ENDPOINT|" "$VALUES"
+sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+
+#sed -i "/cost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/cluster_events:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/kube-state-metrics:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/prometheus-node-exporter:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/prometheus-operator-crds:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+#sed -i "/opencost:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
+
+
+
+echo "After making the required changes to values.yml"
+sudo helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
+
+# Variables
+ALLOY_CONFIG_URL="http://10.0.34.144/config.alloy"
+API_ENDPOINT="https://10.0.34.181:8000/api/vl/agents/"
+HOST_IP=$(hostname -I | awk '{print $1}')
+OMEGA_UID="310b297d-29c9-4407-9506-e7bc5e7fbf46"
+AGENT_NAME="Linux"
+HOSTNAME="10.0.35.131"
+HOST_IP="10.0.35.131"
+ALLOY_PORT=8080
+
+# Function to log messages
+log() {
+    echo "$(date +'%Y-%m-%d %H:%M:%S') - $1"
+}
+
+# Create new agent
+log "Creating new agent..."
+response=$(curl -k -s -w "\n%{http_code}" -X POST "$API_ENDPOINT" \
+    -H "Content-type: application/json" \
+    -d '{
+        "host_name": "'$HOSTNAME'",
+        "ip_port": "'$HOST_IP:$ALLOY_PORT'",
+        "keycloak_id": "'"$OMEGA_UID"'",
+        "agent_name": "'"$AGENT_NAME"'",
+        "status": "Active"
+    }')
+
+# Split the response and HTTP code
+http_code=$(echo "$response" | tail -n1)
+response_body=$(echo "$response" | sed '$d')
+
+# Check the HTTP response code
+if [ "$http_code" -eq 200 ]; then
+    log "Agent created successfully: $response_body"
+else
+    log "Failed to create agent. HTTP code: $http_code. Response: $response_body"
+fi
+
+echo "create a alloy"
+sudo kubectl get pods -n $NAMESPACE
