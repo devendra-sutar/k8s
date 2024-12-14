@@ -25,8 +25,16 @@ server {
 }
 
 
-sudo sed -i "s|export const UI_URL = .*|export const UI_URL = \"https://${INSTANCE_IP}:9980/\";|" /home/ubuntu/omega-project/frontend/api-config.js
+if sudo grep -q "export const UI_URL" /home/ubuntu/omega-project/frontend/api-config.js; then
+  # Replace the existing UI_URL line
+  sudo sed -i "s|export const UI_URL = .*|export const UI_URL = \"https://${INSTANCE_IP}:9980/\";|" /home/ubuntu/omega-project/frontend/api-config.js
+else
+  # Append the UI_URL if not found
+  echo "export const UI_URL = \"https://${INSTANCE_IP}:9980/\";" | sudo tee -a /home/ubuntu/omega-project/frontend/api-config.js > /dev/null
+fi
 
+# Always append the KEYCLOAK_URL
+echo "export const KEYCLOAK_URL = \"https://10.0.34.141:8443\";" | sudo tee -a /home/ubuntu/omega-project/frontend/api-config.js > /dev/null
 
 
 
