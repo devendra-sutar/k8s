@@ -25,7 +25,7 @@ server {
 }
 
 
-
+sudo sed -i "s|export const UI_URL = .*|export const UI_URL = \"https://${INSTANCE_IP}:9980/\";|" /home/ubuntu/omega-project/frontend/api-config.js
 
 
 
