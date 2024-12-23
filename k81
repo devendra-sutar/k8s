@@ -169,3 +169,14 @@ kubectl get pods -n alloy
 
 helm install my-monitoring-stack ./k8s-monitoring -n sunny   -f /home/ubuntu/values.yml   --set agentRegistration.apiEndpoint="https://10.0.34.181:8000/api/v1/agents/"   --set agentRegistration.agentNamePrefix="CustomAgent"   --set agentRegistration.omegaUid="310b297d-29c9-4407-9506-e7bc5e7fbf46"
 Error: INSTALLATION FAILED: Unable to continue with install: CustomResourceDefinition "alertmanagerconfigs.monitoring.coreos.com" in namespace "" exists and cannot be imported into the current release: invalid ownership metadata; annotation validation error: key "meta.helm.sh/release-name" must equal "my-monitoring-stack": current value is "grafana-k8s-monitoring"; annotation validation error: key "meta.helm.sh/release-namespace" must equal "sunny": current value is "default"
+
+
+
+
+
+kubectl delete crd alertmanagerconfigs.monitoring.coreos.com
+kubectl delete crd alertmanagers.monitoring.coreos.com
+kubectl delete crd prometheusrules.monitoring.coreos.com
+kubectl delete crd prometheus.monitoring.coreos.com
+kubectl delete crd servicemonitors.monitoring.coreos.com
+kubectl delete crd thanosrulers.monitoring.coreos.com
