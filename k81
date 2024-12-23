@@ -110,6 +110,11 @@ helm install my-monitoring-chart ./my-helm-chart -n alloy \
 
 
 
+helm install my-monitoring-chart ./my-helm-chart -n alloy \
+  -f values.yaml \
+  --set agentRegistration.apiEndpoint="https://example.com/api/v1/agents/" \
+  --set agentRegistration.agentNamePrefix="CustomAgent" \
+  --set agentRegistration.omegaUid="310b297d-29c9-4407-9506-e7bc5e7fbf46"
 
 
 
