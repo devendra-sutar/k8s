@@ -11,5 +11,8 @@ spec:
     - name: wget
       image: busybox
       command: ['wget']
-      args: ['{{ include "my-monitoring-chart.fullname" . }}:{{ .Values.service.port }}']
+      args:
+        - "--spider"
+        - "http://{{ include "my-monitoring-chart.fullname" . }}:{{ .Values.service.port }}"
   restartPolicy: Never
+
