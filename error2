@@ -1,85 +1,15 @@
-#!/bin/bash
-
-# Variables for Grafana Monitoring
-OMEGA="omega"
-IP="http://10.0.34.144:9090"
-LOKI_HOST="http://10.0.34.147:3100"
-TEMPO_HOST="http://10.0.34.193:3200"
-TRUE="true"
-ENDPOINT="/api/vl/write"
-VALUES="values.yml"
-NAMESPACE="alloy"
-
-# Download kubectl
-echo "Starting download of kubectl ..."
-curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-echo "Successfully downloaded kubectl"
-
-# Set permissions for kubectl
-echo "<=============================>"
-echo "Changing permissions now..."
-chmod +x kubectl
-echo "Successfully changed permissions"
-echo "<=============================>"
-
-# Move kubectl to /usr/local/bin
-echo "Moving kubectl to /usr/local/bin..."
-sudo mv kubectl /usr/local/bin/
-
-# Install Prerequisites for Helm (if not already installed)
-echo "Installing prerequisites for Helm..."
-sudo apt-get install apt-transport-https -y
-
-# Install Helm 3
-echo "Installing Helm (Helm 3)..."
-curl -O https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-# Create the alloy namespace
-echo "Creating namespace $NAMESPACE..."
-sudo kubectl create namespace $NAMESPACE || echo "Namespace $NAMESPACE already exists"
-
-# Add the Grafana Helm chart repository
-echo "Adding the Grafana Helm chart repository to your Helm configuration..."
-sudo helm repo add grafana https://grafana.github.io/helm-charts
-
-# Update Helm repository
-echo "Updating Helm repository..."
-sudo helm repo update
-
-# Fetch default values.yaml and modify it
-echo "Fetching and modifying values.yaml..."
-helm show values grafana/k8s-monitoring > $VALUES
-
-# Modify the values.yaml file with custom parameters
-echo "Modifying values.yml..."
-
-# Set cluster name to omega
-sed -i "/cluster:/,/^ *name:/s/name: \"\"/name: \"$OMEGA\"/" "$VALUES"
-
-# Set Prometheus, Loki, Tempo endpoints
-IP=$(echo "$IP" | sed 's/\//\\\//g')
-sed -i "/prometheus:/,/^ *host:/s/host: \"\"/host: \"$IP\"/" "$VALUES"
-sed -i -e "/^\s*loki:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$LOKI_HOST\"|" "$VALUES"
-sed -i -e "/^\s*tempo:/,/^\s*host:/ s|^\(\s*host:\).*|\1 \"$TEMPO_HOST\"|" "$VALUES"
-
-# Set write endpoint for Prometheus
-sed -i "/queryEndpoint:/,/^ writeEndpoint:/s|writeEndpoint: .|writeEndpoint: $ENDPOINT|" "$VALUES"
-
-# Enable traces and other components
-sed -i "/traces:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-sed -i "/kepler:/,/^ *enabled: false/s/false/$TRUE/" "$VALUES"
-
-# Install Grafana Monitoring Stack
-echo "Installing Grafana Monitoring Stack..."
-sudo helm install -n $NAMESPACE grafana-k8s-monitoring grafana/k8s-monitoring -f $VALUES
-
-# Verify Grafana pods in the alloy namespace
-echo "Verifying Grafana pods in the $NAMESPACE namespace..."
-sudo kubectl get pods -n $NAMESPACE
-
-echo "Grafana Monitoring Stack installed successfully."
-echo "Access Grafana at http://<grafana-server-ip>:3000. Default credentials: admin/admin."
-
-# Setup Kubernetes Dashboards in Grafana
-echo "Setting up Kubernetes dashboards in Grafana..."
-# (Additional setup for dashboards can be added here)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "my-monitoring-chart.fullname" . }}-test-connection"
+  labels:
+    {{- include "my-monitoring-chart.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['{{ include "my-monitoring-chart.fullname" . }}:{{ .Values.service.port }}']
+  restartPolicy: Never
