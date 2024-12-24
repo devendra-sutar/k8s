@@ -1,38 +1,61 @@
-# Use a base image with Ubuntu
-FROM ubuntu:20.04
-
-# Set environment variables to avoid interactive prompts during installation
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install required dependencies (curl, kubectl, helm, etc.)
-RUN apt-get update && \
-    apt-get install -y \
-    curl \
-    apt-transport-https \
-    ca-certificates \
-    sudo \
-    bash \
-    && apt-get clean
-
-# Download kubectl and set it up
-RUN curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
-    && chmod +x /usr/local/bin/kubectl
-
-# Install Helm
-RUN curl -O https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-# Set the working directory to /scripts
-WORKDIR /scripts
-
-# Copy the script.sh and modify-values.sh into the container
-COPY setup.sh /scripts/setup.sh
-COPY modify-values.sh /scripts/modify-values.sh
-
-# Make the scripts executable
-RUN chmod +x /scripts/setup.sh /scripts/modify-values.sh
-
-# Define the entrypoint for the container (you can call setup.sh here)
-ENTRYPOINT ["/scripts/setup.sh"]
-
-# Run the script
-CMD ["bash"]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "my-monitoring-chart.fullname" . }}
+  labels:
+    {{- include "my-monitoring-chart.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "my-monitoring-chart.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "my-monitoring-chart.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "my-monitoring-chart.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
