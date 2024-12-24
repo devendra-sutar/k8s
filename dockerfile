@@ -47,6 +47,18 @@ spec:
               port: http
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            - name: API_ENDPOINT
+              value: "{{ .Values.agentRegistration.apiEndpoint }}"
+            - name: AGENT_NAME_PREFIX
+              value: "{{ .Values.agentRegistration.agentNamePrefix }}"
+            - name: OMEGA_UID
+              valueFrom:
+                secretKeyRef:
+                  name: agent-omega-uid
+                  key: omegaUid
+            - name: AGENT_PORT
+              value: "{{ .Values.agentRegistration.port }}"
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
