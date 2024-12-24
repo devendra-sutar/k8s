@@ -1,0 +1,65 @@
+configmap-agent-registration.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-registration
+  namespace: {{ .Release.Namespace }}
+data:
+  apiEndpoint: {{ .Values.agentRegistration.apiEndpoint }}
+  agentNamePrefix: {{ .Values.agentRegistration.agentNamePrefix }}
+  port: {{ .Values.agentRegistration.port }}
+
+
+secret-agent-registration.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: agent-omega-uid
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+data:
+  omegaUid: {{ .Values.agentRegistration.omegaUid | b64enc }}
+
+templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-deployment
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent
+  template:
+    metadata:
+      labels:
+        app: agent
+    spec:
+      containers:
+      - name: agent
+        image: agent-image:latest  # Replace with your actual agent image
+        command: ["/bin/bash", "/etc/agent-registration/register-agent.sh"]
+        volumeMounts:
+        - name: agent-registration-script
+          mountPath: /etc/agent-registration
+          subPath: register-agent.sh
+        - name: agent-omega-uid
+          mountPath: /etc/agent-registration/omegaUid
+          subPath: omegaUid
+      volumes:
+      - name: agent-registration-script
+        configMap:
+          name: agent-registration
+      - name: agent-omega-uid
+        secret:
+          secretName: agent-omega-uid
+
+
+helm install my-monitoring-stack ./my-monitoring-chart -n alloy -f values.yaml
+
+
+helm install my-monitoring-stack ./my-monitoring-chart -n alloy -f values.yaml \
+  --set agentRegistration.omegaUid="new-omega-uid"
+
