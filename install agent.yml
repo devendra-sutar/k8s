@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: install-agent
+  labels:
+    app.kubernetes.io/name: "install-agent"
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "1"
+spec:
+  template:
+    spec:
+      containers:
+      - name: install-agent
+        image: busybox
+        command: ["/bin/sh", "-c", "wget https://example.com/install-agent.sh && chmod +x install-agent.sh && ./install-agent.sh"]
+      restartPolicy: Never
+
+
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agent-registration
+  labels:
+    app.kubernetes.io/name: "agent-registration"
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "2"
+spec:
+  template:
+    spec:
+      containers:
+      - name: agent-registration
+        image: busybox
+        command: ["/bin/sh", "-c", "wget https://example.com/agent-registration.sh && chmod +x agent-registration.sh && ./agent-registration.sh"]
+      restartPolicy: Never
