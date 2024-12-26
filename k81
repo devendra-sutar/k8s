@@ -103,3 +103,6 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+
+
+helm install alloy-agent ./alloy-agent --set env.omegaUid="your-omega-uid" --set env.agentName="your-agent-name"
