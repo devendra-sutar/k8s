@@ -106,3 +106,22 @@ spec:
 
 
 helm install alloy-agent ./alloy-agent --set env.omegaUid="your-omega-uid" --set env.agentName="your-agent-name"
+
+
+root@omega-dev-test:/home/ubuntu# helm install alloy-agent ./alloy-agent --set env.omegaUid="310b297d-29c9-4407-9506-e7bc5e7fbf46" --set env.agentName="kubernetes"
+NAME: alloy-agent
+LAST DEPLOYED: Thu Dec 26 09:44:36 2024
+NAMESPACE: default
+STATUS: deployed
+REVISION: 1
+NOTES:
+1. Get the application URL by running these commands:
+  export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=alloy-agent,app.kubernetes.io/instance=alloy-agent" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace default $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace default port-forward $POD_NAME 8080:$CONTAINER_PORT
+root@omega-dev-test:/home/ubuntu# kubectl get pos
+error: the server doesn't have a resource type "pos"
+root@omega-dev-test:/home/ubuntu# kubectl get pod
+NAME                          READY   STATUS             RESTARTS      AGE
+alloy-agent-84f66db69-vjv2t   0/1     CrashLoopBackOff   2 (24s ago)   45s
