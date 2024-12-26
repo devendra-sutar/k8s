@@ -1,37 +1,106 @@
-apiVersion: batch/v1
-kind: Job
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: install-agent
+  name: {{ include "alloy-agent.fullname" . }}
   labels:
-    app.kubernetes.io/name: "install-agent"
-  annotations:
-    "helm.sh/hook": post-install
-    "helm.sh/hook-weight": "1"
+    {{- include "alloy-agent.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "alloy-agent.selectorLabels" . | nindent 6 }}
   template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "alloy-agent.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      initContainers:
+        - name: install-curl
+          image: ubuntu:20.04  # Use a base image with apt-get support
+          command:
+            - "/bin/bash"
+            - "-c"
+            - |
+              apt-get update && apt-get install -y curl && apt-get clean
       containers:
-      - name: install-agent
-        image: busybox
-        command: ["/bin/sh", "-c", "wget https://example.com/install-agent.sh && chmod +x install-agent.sh && ./install-agent.sh"]
-      restartPolicy: Never
-
-
-
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: agent-registration
-  labels:
-    app.kubernetes.io/name: "agent-registration"
-  annotations:
-    "helm.sh/hook": post-install
-    "helm.sh/hook-weight": "2"
-spec:
-  template:
-    spec:
-      containers:
-      - name: agent-registration
-        image: busybox
-        command: ["/bin/sh", "-c", "wget https://example.com/agent-registration.sh && chmod +x agent-registration.sh && ./agent-registration.sh"]
-      restartPolicy: Never
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: API_ENDPOINT
+              value: {{ .Values.apiEndpoint | quote }}
+            - name: ALLOY_CONFIG_URL
+              value: {{ .Values.alloyConfigUrl | quote }}
+            - name: ALLOY_PORT
+              value: "{{ .Values.alloyPort }}"
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OMEGA_UID
+              value: {{ .Values.env.omegaUid | quote }}
+            - name: AGENT_NAME
+              value: {{ .Values.env.agentName | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -ex
+              HOST_IP=$(hostname -I | awk '{print $1}')
+              response=$(curl -k -v -s -w "\n%{http_code}" -X POST "$API_ENDPOINT" \
+                  -H "Content-Type: application/json" \
+                  -d '{
+                      "host_name": "'"$HOSTNAME"'",
+                      "ip_port": "'"$HOST_IP:$ALLOY_PORT"'",
+                      "keycloak_id": "'"$OMEGA_UID"'",
+                      "agent_name": "'"$AGENT_NAME"'",
+                      "status": "Active"
+                  }')
+              http_code=$(echo "$response" | tail -n1)
+              body=$(echo "$response" | sed '$d')
+              if [[ "$http_code" == "201" ]]; then
+                echo "Agent created successfully."
+              else
+                echo "Agent creation failed. Response: $body"
+              fi
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
