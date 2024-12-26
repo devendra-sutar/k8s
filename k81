@@ -9,15 +9,13 @@ my-helm-chart/
 
 
 values.yaml
-This file contains the default configuration values for your Helm chart. You can still set defaults for the omegaUid, but it can be overridden during the Helm install via the --set flag.
+apiEndpoint: "https://10.0.34.181:8000/api/v1/agents/"
+alloyConfigUrl: "http://10.0.34.144/config.alloy"
+alloyPort: 8080
+env:
+  omegaUid: ""       # Will be passed dynamically
+  agentName: ""      # Will be passed dynamically
 
-yaml
-Copy code
-agentRegistration:
-  apiEndpoint: "https://example.com/api/v1/agents/"
-  agentNamePrefix: "CustomAgent"
-  omegaUid: "310b297d-29c9-4407-9506-e7bc5e7fbf46"  # Default value (can be overridden during install)
-  port: "3000"
 
 
 
