@@ -23,13 +23,14 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      serviceAccountName: {{ include "alloy-agent.serviceAccountName" . }}
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: install-curl
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              apt-get update && apt-get install -y curl
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
@@ -103,7 +104,6 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-
 
 helm install alloy-agent ./alloy-agent --set env.omegaUid="your-omega-uid" --set env.agentName="your-agent-name"
 
