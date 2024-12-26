@@ -1,180 +1,68 @@
-my-helm-chart/
-├── charts/                         # Subcharts (if any)
-├── templates/                      # Templates for Kubernetes resources
-│   ├── configmap-agent-registration.yaml  # ConfigMap with agent registration script
-│   └── deployment.yaml             # Deployment for your application (if needed)
-├── values.yaml                     # Default values for the chart
-├── Chart.yaml                      # Helm chart metadata
-└── README.md                       # (Optional) Documentation for the chart
-
-
-values.yaml
-apiEndpoint: "https://10.0.34.181:8000/api/v1/agents/"
-alloyConfigUrl: "http://10.0.34.144/config.alloy"
-alloyPort: 8080
-env:
-  omegaUid: ""       # Will be passed dynamically
-  agentName: ""      # Will be passed dynamically
-
-
-
-
-
-
-
-templates/configmap-agent-registration.yaml
-This ConfigMap contains the register-agent.sh script, which will be used for registering the agent with dynamic omegaUid values.
-
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: agent-registration-script
-  namespace: {{ .Release.Namespace }}
-data:
-  register-agent.sh: |
-    #!/bin/bash
-    API_ENDPOINT="{{ .Values.agentRegistration.apiEndpoint }}"
-    HOST_IP=$(hostname -I | awk '{print $1}')
-    OMEGA_UID="{{ .Values.agentRegistration.omegaUid }}"
-    AGENT_NAME="{{ .Values.agentRegistration.agentNamePrefix }}-$(hostname)"
-
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Creating new agent..."
-    response=$(curl -k -v -s -w "\n%{http_code}" -X POST "$API_ENDPOINT" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "host_name": "'"$HOSTNAME"'",
-            "ip_port": "'"$HOST_IP:{{ .Values.agentRegistration.port }}"'",
-            "keycloak_id": "'"$OMEGA_UID"'",
-            "agent_name": "'"$AGENT_NAME"'",
-            "status": "Active"
-        }')
-
-    http_code=$(echo "$response" | tail -n1)
-    body=$(echo "$response" | sed '$d')
-
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Response Code: $http_code"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Response Body: $body"
-
-    if [[ "$http_code" == "201" ]]; then
-        echo "Agent created successfully."
-    elif [[ "$body" == *"UNIQUE constraint failed"* ]]; then
-        echo "ERROR: IP:PORT combination already exists"
-    else
-        echo "Agent creation failed. Check the logs for details."
-    fi
-
-
-
-
-
-
-
-templates/deployment.yaml (Optional)
-This is an example Deployment to deploy your application or agent that uses the omegaUid from the values.yaml or passed during installation.
-
-
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: agent-deployment
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "alloy-agent.fullname" . }}
+  labels:
+    {{- include "alloy-agent.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
-      app: agent
+      {{- include "alloy-agent.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
-        app: agent
+        {{- include "alloy-agent.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "alloy-agent.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-      - name: agent
-        image: agent-image:latest
-        env:
-        - name: OMEGA_UID
-          valueFrom:
-            configMapKeyRef:
-              name: agent-registration-script
-              key: omegaUid
-
-
-
-To install this chart and pass the omegaUid dynamically via the Helm --set flag, you can run:
-helm install my-monitoring-chart ./my-helm-chart -n alloy \
-  --set agentRegistration.apiEndpoint="https://example.com/api/v1/agents/" \
-  --set agentRegistration.agentNamePrefix="CustomAgent" \
-  --set agentRegistration.omegaUid="310b297d-29c9-4407-9506-e7bc5e7fbf46"
-
-
-
-helm install my-monitoring-stack ./my-monitoring-chart -n alloy \
-  -f /home/ubuntu/my-monitoring-values.yaml \
-  --set agentRegistration.apiEndpoint="https://example.com/api/v1/agents/" \
-  --set agentRegistration.agentNamePrefix="CustomAgent" \
-  --set agentRegistration.omegaUid="310b297d-29c9-4407-9506-e7bc5e7fbf46"
-
-
-
-
-
-
-Pod Deployment and Logs:
-
-After the Helm command finishes, Kubernetes will create the necessary pods based on the chart's templates (e.g., deployment, configmap, etc.).
-The register-agent.sh script inside the ConfigMap will be executed by a container or Kubernetes Job (depending on your chart's design).
-If the script runs successfully, it will log the output in the container or job logs.
-To view the logs of the pod running the script, you can use kubectl:
-
-bash
-Copy code
-kubectl logs -n alloy <pod-name>
-Script Output:
-
-The register-agent.sh script will execute and log details based on the response from the API call. You can expect the following types of output, based on different scenarios:
-
-Successful Agent Creation (HTTP 201): If the agent is successfully created, you will see something like:
-
-css
-Copy code
-2024-12-23 14:45:30 - Response Code: 201
-2024-12-23 14:45:30 - Response Body: { "status": "success", "message": "Agent created" }
-Agent created successfully.
-IP:PORT Already Exists (HTTP 400 with "UNIQUE constraint failed"): If the IP:PORT combination already exists, you will see:
-
-yaml
-Copy code
-2024-12-23 14:45:30 - Response Code: 400
-2024-12-23 14:45:30 - Response Body: { "error": "UNIQUE constraint failed: agents.ip_port" }
-ERROR: IP:PORT combination already exists
-Other Errors (e.g., HTTP 500, Unauthorized, etc.): If there is a different error (e.g., server error, unauthorized request), the script will log:
-
-css
-Copy code
-2024-12-23 14:45:30 - Response Code: 500
-2024-12-23 14:45:30 - Response Body: { "error": "Internal Server Error" }
-Agent creation failed. Check the logs for details.
-Verification in Kubernetes:
-
-You can verify the deployed pods and services by running:
-
-bash
-Copy code
-kubectl get pods -n alloy
-
-
-
-
-helm install my-monitoring-stack ./k8s-monitoring -n sunny   -f /home/ubuntu/values.yml   --set agentRegistration.apiEndpoint="https://10.0.34.181:8000/api/v1/agents/"   --set agentRegistration.agentNamePrefix="CustomAgent"   --set agentRegistration.omegaUid="310b297d-29c9-4407-9506-e7bc5e7fbf46"
-Error: INSTALLATION FAILED: Unable to continue with install: CustomResourceDefinition "alertmanagerconfigs.monitoring.coreos.com" in namespace "" exists and cannot be imported into the current release: invalid ownership metadata; annotation validation error: key "meta.helm.sh/release-name" must equal "my-monitoring-stack": current value is "grafana-k8s-monitoring"; annotation validation error: key "meta.helm.sh/release-namespace" must equal "sunny": current value is "default"
-
-
-
-
-
-kubectl delete crd alertmanagerconfigs.monitoring.coreos.com
-kubectl delete crd alertmanagers.monitoring.coreos.com
-kubectl delete crd prometheusrules.monitoring.coreos.com
-kubectl delete crd prometheus.monitoring.coreos.com
-kubectl delete crd servicemonitors.monitoring.coreos.com
-kubectl delete crd thanosrulers.monitoring.coreos.com
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
