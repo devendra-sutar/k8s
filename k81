@@ -50,6 +50,43 @@ spec:
           volumeMounts:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          env:
+            - name: API_ENDPOINT
+              value: {{ .Values.apiEndpoint | quote }}
+            - name: ALLOY_CONFIG_URL
+              value: {{ .Values.alloyConfigUrl | quote }}
+            - name: ALLOY_PORT
+              value: "{{ .Values.alloyPort }}"
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OMEGA_UID
+              value: {{ .Values.env.omegaUid | quote }}
+            - name: AGENT_NAME
+              value: {{ .Values.env.agentName | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -ex
+              HOST_IP=$(hostname -I | awk '{print $1}')
+              response=$(curl -k -v -s -w "\n%{http_code}" -X POST "$API_ENDPOINT" \
+                  -H "Content-Type: application/json" \
+                  -d '{
+                      "host_name": "'"$HOSTNAME"'",
+                      "ip_port": "'"$HOST_IP:$ALLOY_PORT"'",
+                      "keycloak_id": "'"$OMEGA_UID"'",
+                      "agent_name": "'"$AGENT_NAME"'",
+                      "status": "Active"
+                  }')
+              http_code=$(echo "$response" | tail -n1)
+              body=$(echo "$response" | sed '$d')
+              if [[ "$http_code" == "201" ]]; then
+                echo "Agent created successfully."
+              else
+                echo "Agent creation failed. Response: $body"
+              fi
       {{- with .Values.volumes }}
       volumes:
         {{- toYaml . | nindent 8 }}
