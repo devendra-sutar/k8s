@@ -1,55 +1,75 @@
-#!/bin/bash
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "alloy-agent.fullname" . }}
+  labels:
+    {{- include "alloy-agent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "alloy-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "alloy-agent.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # Check the package manager and install curl accordingly
+              if command -v apk > /dev/null; then
+                echo "Using apk to install curl"
+                apk update && apk add curl
+              elif command -v apt-get > /dev/null; then
+                echo "Using apt-get to install curl"
+                apt-get update && apt-get install -y curl && apt-get clean
+              else
+                echo "Unsupported package manager"
+                exit 1
+              fi
 
-# Dynamic Values (to be passed during installation)
-API_ENDPOINT="https://10.0.34.181:8000/api/v1/agents/"
-OMEGA_UID="310b297d-29c9-4407-9506-e7bc5e7fbf46"
-AGENT_NAME="CustomAgent-$(hostname)"
-PORT="3000"
+              # Check if curl is installed
+              curl --version
 
-# Running the Helm install command with dynamic values
-echo "Running Helm install with dynamic values..."
-helm install my-monitoring-stack ./my-monitoring-chart -n alloy \
-  --set agentRegistration.apiEndpoint="$API_ENDPOINT" \
-  --set agentRegistration.omegaUid="$OMEGA_UID" \
-  --set agentRegistration.agentNamePrefix="$AGENT_NAME" \
-  --set agentRegistration.port="$PORT" \
-  -f values.yaml
-
-
-#!/bin/bash
-
-# Dynamic Values for registration
-API_ENDPOINT=$1
-OMEGA_UID=$2
-AGENT_NAME=$3
-PORT=$4
-
-HOST_IP=$(hostname -I | awk '{print $1}')
-AGENT_NAME="${AGENT_NAME}-$(hostname)"
-
-# Send HTTP request to register the agent
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Creating new agent..."
-
-response=$(curl -k -v -s -w "\n%{http_code}" -X POST "$API_ENDPOINT" \
-    -H "Content-Type: application/json" \
-    -d '{
-        "host_name": "'"$HOSTNAME"'",
-        "ip_port": "'"$HOST_IP:$PORT"'",
-        "keycloak_id": "'"$OMEGA_UID"'",
-        "agent_name": "'"$AGENT_NAME"'",
-        "status": "Active"
-    }')
-
-http_code=$(echo "$response" | tail -n1)
-body=$(echo "$response" | sed '$d')
-
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Response Code: $http_code"
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Response Body: $body"
-
-if [[ "$http_code" == "201" ]]; then
-    echo "Agent created successfully."
-elif [[ "$body" == *"UNIQUE constraint failed"* ]]; then
-    echo "ERROR: IP:PORT combination already exists"
-else
-    echo "Agent creation failed. Check the logs for details."
-fi
+              set -ex
+              HOST_IP=$(hostname -I | awk '{print $1}')
+              response=$(curl -k -v -s -w "\n%{http_code}" -X POST "$API_ENDPOINT" \
+                  -H "Content-Type: application/json" \
+                  -d '{
+                      "host_name": "'"$HOSTNAME"'",
+                      "ip_port": "'"$HOST_IP:$ALLOY_PORT"'",
+                      "keycloak_id": "'"$OMEGA_UID"'",
+                      "agent_name": "'"$AGENT_NAME"'",
+                      "status": "Active",
+                      "cluster_name": "omega"  # Hardcoded cluster name as omega
+                  }')
+              http_code=$(echo "$response" | tail -n1)
+              body=$(echo "$response" | sed '$d')
+              if [[ "$http_code" == "201" ]]; then
+                echo "Agent created successfully."
+              else
+                echo "Agent creation failed. Response: $body"
+              fi
+          env:
+            - name: API_ENDPOINT
+              value: {{ .Values.apiEndpoint | quote }}
+            - name: ALLOY_CONFIG_URL
+              value: {{ .Values.alloyConfigUrl | quote }}
+            - name: ALLOY_PORT
+              value: "{{ .Values.alloyPort }}"
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OMEGA_UID
+              value: {{ .Values.env.omegaUid | quote }}
+            - name: AGENT_NAME
+              value: {{ .Values.env.agentName | quote }}
+            - name: CLUSTER_NAME
+              value: "omega"  # Using hardcoded cluster name
