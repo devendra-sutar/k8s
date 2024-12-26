@@ -5,71 +5,26 @@ metadata:
   labels:
     {{- include "alloy-agent.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "alloy-agent.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
-      annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       labels:
         {{- include "alloy-agent.labels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
     spec:
-      initContainers:
-        - name: install-curl
-          image: ubuntu:20.04  # Use a base image with apt-get support
-          command:
-            - "/bin/bash"
-            - "-c"
-            - |
-              apt-get update && apt-get install -y curl && apt-get clean
       containers:
         - name: {{ .Chart.Name }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
-              protocol: TCP
-          livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.volumeMounts }}
-          volumeMounts:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          env:
-            - name: API_ENDPOINT
-              value: {{ .Values.apiEndpoint | quote }}
-            - name: ALLOY_CONFIG_URL
-              value: {{ .Values.alloyConfigUrl | quote }}
-            - name: ALLOY_PORT
-              value: "{{ .Values.alloyPort }}"
-            - name: HOSTNAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: OMEGA_UID
-              value: {{ .Values.env.omegaUid | quote }}
-            - name: AGENT_NAME
-              value: {{ .Values.env.agentName | quote }}
           command:
             - /bin/sh
             - -c
             - |
+              # Install curl during the container's startup
+              apt-get update && apt-get install -y curl && apt-get clean
+
               set -ex
               HOST_IP=$(hostname -I | awk '{print $1}')
               response=$(curl -k -v -s -w "\n%{http_code}" -X POST "$API_ENDPOINT" \
@@ -88,19 +43,18 @@ spec:
               else
                 echo "Agent creation failed. Response: $body"
               fi
-      {{- with .Values.volumes }}
-      volumes:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+          env:
+            - name: API_ENDPOINT
+              value: {{ .Values.apiEndpoint | quote }}
+            - name: ALLOY_CONFIG_URL
+              value: {{ .Values.alloyConfigUrl | quote }}
+            - name: ALLOY_PORT
+              value: "{{ .Values.alloyPort }}"
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OMEGA_UID
+              value: {{ .Values.env.omegaUid | quote }}
+            - name: AGENT_NAME
+              value: {{ .Values.env.agentName | quote }}
