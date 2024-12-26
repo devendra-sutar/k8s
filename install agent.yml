@@ -22,8 +22,20 @@ spec:
             - /bin/sh
             - -c
             - |
-              # Install curl during the container's startup
-              apt-get update && apt-get install -y curl && apt-get clean
+              # Check the package manager and install curl accordingly
+              if command -v apk > /dev/null; then
+                echo "Using apk to install curl"
+                apk update && apk add curl
+              elif command -v apt-get > /dev/null; then
+                echo "Using apt-get to install curl"
+                apt-get update && apt-get install -y curl && apt-get clean
+              else
+                echo "Unsupported package manager"
+                exit 1
+              fi
+
+              # Check if curl is installed
+              curl --version
 
               set -ex
               HOST_IP=$(hostname -I | awk '{print $1}')
