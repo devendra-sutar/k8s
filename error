@@ -1,2 +1,60 @@
-{{ with .Values.externalServices.prometheus }}
-  {{ .hostKey }}: {{ required ".Values.externalServices.prometheus.host is required to use metrics. Please set it and try again." .host | b64enc | quote }}
+#!/bin/bash
+#Set up a new user
+echo "Setting up the ubuntu user..."
+useradd -m -s /bin/bash ubuntu
+echo "ubuntu:linux" | chpasswd
+# Enable SSH password authentication
+sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+systemctl restart sshd
+ 
+INSTANCE_IP=$(hostname -I | awk '{print $1}')
+echo "Instance IP is: $INSTANCE_IP"
+echo "OMEGA_IP=${INSTANCE_IP}" >> /home/ubuntu/omega-code/backend/.env
+
+sudo rm -f /home/ubuntu/omega-code/frontend/api-config.js
+cat <<EOF > /home/ubuntu/omega-code/frontend/api-config.js
+export const UI_URL = "https://${INSTANCE_IP}/";
+#export const BASE_URL = "https://${INSTANCE_IP}:8000";
+export const KEYCLOAK_URL = "https://10.0.34.141:8443";
+EOF
+
+sudo rm -rf /etc/nginx/sites-available/default
+cat<<EOF > /etc/nginx/sites-available/default
+server {
+    listen 80;
+    server_name ${INSTANCE_IP};
+
+    # Redirect all HTTP traffic to HTTPS
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name ${INSTANCE_IP};  # Replace with your domain or IP
+
+    root /var/www/html;
+
+    ssl_certificate /etc/nginx/ssl/self-signed.crt;
+    ssl_certificate_key /etc/nginx/ssl/self-signed.key;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api {
+    proxy_pass https://${INSTANCE_IP}:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    # Optional: SSL configurations
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+}
+EOF
+
+#sudo systemctl restart omega-backend.service
+#sudo systemctl reload nginx
+echo "linux" | sudo -S systemctl reload nginx
+sudo systemctl restart omega-backend.service
